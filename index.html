@@ -570,10 +570,17 @@ async function doDfuHandshake(targetMcu, keyIndex) {
   if (cipher.length !== 16) { log("[-] unexpected ble_rand cipher length"); return false; }
   // Scooter signs its random with AES DECRYPT-mode; we invert with ENCRYPT-mode.
   const plainRandom = aesEncryptBlock(cipher, key);
-  log("[<] cipher=" + bytesToHex(cipher) + " -> plaintext random=" + bytesToHex(plainRandom));
+  // The firmware's own ble_key handler (sub_809E46 -> sub_80B95C -> sub_80B914,
+  // disassembly-confirmed) XORs whatever we send in place against key[profile]
+  // BEFORE comparing it to the original random — i.e. it checks
+  // (sent_bytes XOR key) == random, not sent_bytes == random. So we must send
+  // random XOR key, not the raw plaintext random verbatim.
+  const bleKeyPayload = plainRandom.map((b, i) => b ^ key[i]);
+  log("[<] cipher=" + bytesToHex(cipher) + " -> plaintext random=" + bytesToHex(plainRandom) +
+      " -> ble_key payload=" + bytesToHex(bleKeyPayload));
 
   notifyQueue.length = 0;
-  const keyMsg = concatBytes(strToBytes("down ble_key "), plainRandom, new Uint8Array([0x0d]));
+  const keyMsg = concatBytes(strToBytes("down ble_key "), bleKeyPayload, new Uint8Array([0x0d]));
   await send(keyMsg, true);
   const resp2 = await waitForNotify(5000);
   if (!resp2 || !bytesStartWith(resp2, strToBytes("ok"))) { log("[-] ble_key rejected: " + (resp2 ? bytesToHex(resp2) : null)); return false; }
