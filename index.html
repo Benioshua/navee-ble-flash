@@ -427,8 +427,12 @@ if (typeof module !== "undefined") {
 // ───────────────────────────────── UI/log ──────────────────────────────────
 const logEl = document.getElementById("log");
 function log(msg) {
+  // Only auto-scroll if the user was already at (or near) the bottom —
+  // otherwise a new notification while they've scrolled up to read
+  // something yanks them back down.
+  const atBottom = logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 4;
   logEl.textContent += msg + "\n";
-  logEl.scrollTop = logEl.scrollHeight;
+  if (atBottom) logEl.scrollTop = logEl.scrollHeight;
   console.log(msg);
 }
 
