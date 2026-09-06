@@ -336,6 +336,49 @@
       <button class="sb" id="btn-tcs-off" type="button" disabled onclick="sendTCS(false)">OFF</button>
     </div>
   </div>
+
+  <div class="stitle">Region (experimental — 0x6F/0x08)</div>
+  <p class="snote">
+    Only ever documented as sent once at bind time, populated from GPS via the official app —
+    and per independent research (pepperonas/navee-st3-pro) it's cosmetic: the BLDC controller
+    never reads it and enforces its speed cap regardless. That finding was for a different model
+    (ST3 DE), and this project has already found things that didn't transfer from that unit to
+    this one — so this is here to test directly rather than assume. Byte value below is the
+    region enum's ordinal position (0=CN, 1=UK, ... 17=DE, ... 23=WE) per their decompiled APK;
+    that byte-encoding itself is <b>not independently confirmed</b>.
+  </p>
+  <div class="srow">
+    <span class="slabel">Region</span>
+    <div class="num-wrap">
+      <select id="regionSelect" disabled aria-label="Region">
+        <option value="0">0 = CN</option>
+        <option value="1">1 = UK</option>
+        <option value="2">2 = ID</option>
+        <option value="3">3 = IN</option>
+        <option value="4">4 = IT</option>
+        <option value="5">5 = NL</option>
+        <option value="6">6 = NZ</option>
+        <option value="7">7 = SG</option>
+        <option value="8">8 = ES</option>
+        <option value="9">9 = TH</option>
+        <option value="10">10 = SE</option>
+        <option value="11">11 = JP</option>
+        <option value="12">12 = EU</option>
+        <option value="13" selected>13 = US</option>
+        <option value="14">14 = CA</option>
+        <option value="15">15 = KR</option>
+        <option value="16">16 = FR</option>
+        <option value="17">17 = DE</option>
+        <option value="18">18 = AT</option>
+        <option value="19">19 = AU</option>
+        <option value="20">20 = RU</option>
+        <option value="21">21 = NE</option>
+        <option value="22">22 = PL</option>
+        <option value="23">23 = WE (unlocked/global?)</option>
+      </select>
+      <button class="sb" id="btn-region" type="button" disabled onclick="sendRegion()">Set</button>
+    </div>
+  </div>
 </section>
 
 <!-- ─── Log ─── -->
@@ -1032,6 +1075,7 @@ function enableSettingBtns() {
   document.querySelectorAll('.sb').forEach(b => b.disabled = false);
   document.getElementById('maxSpeedVal').disabled = false;
   document.getElementById('speedLimitVal').disabled = false;
+  document.getElementById('regionSelect').disabled = false;
   log("[+] Settings panel unlocked — current state populated from 0x70 status.");
 }
 
@@ -1138,6 +1182,16 @@ async function sendSpeedLimit(enabled) {
   const value = enabled ? (0x80 | (kmh & 0x7F)) : 0x00;
   await sendSetting("speed_limit=" + (enabled ? kmh + "km/h" : "off"), 0x6B, new Uint8Array([value]));
   markActive(enabled ? 'btn-limit-on' : 'btn-limit-off', 'btn-limit-on', 'btn-limit-off');
+}
+
+// 0x6F sub 0x08 — Region. Documented as bind-time-only, app-side/cosmetic
+// per independent research on a different model — sent here anyway since
+// that same source's findings already didn't fully transfer to this model
+// once before. Byte = AreaCode enum ordinal (unconfirmed encoding).
+async function sendRegion() {
+  const region = parseInt(document.getElementById('regionSelect').value, 10);
+  const label = document.getElementById('regionSelect').selectedOptions[0].textContent;
+  await sendSetting("region=" + label, 0x6F, new Uint8Array([0x08, region]));
 }
 
 // ══════════════════════════════════════════════════════════
