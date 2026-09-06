@@ -439,6 +439,16 @@ let notifyResolve = null;
 
 function onNotify(event) {
   const value = new Uint8Array(event.target.value.buffer);
+  // The scooter pushes unsolicited telemetry (cmd 0x90/0x92) on its own
+  // schedule, independent of anything we send. If one lands in notifyQueue
+  // between a write and its real reply, waitForNotify() grabs it instead
+  // and misreads it as a rejection or garbage response. Log it, but never
+  // let it enter the reply-matching queue.
+  const frame = parseFrame(value);
+  if (frame.type === "navee" && (frame.cmd === 0x90 || frame.cmd === 0x92)) {
+    log("[.] telemetry (unsolicited) " + bytesToHex(value));
+    return;
+  }
   notifyQueue.push(value);
   log("[<] notify " + bytesToHex(value));
   if (notifyResolve) { const r = notifyResolve; notifyResolve = null; r(); }
