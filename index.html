@@ -586,41 +586,44 @@ async function doDfuHandshake(targetMcu, keyIndex) {
   if (!ack) { log("[-] dfu_start failed"); return false; }
   log("[<] " + bytesToHex(ack));
 
-  const key = AES_KEYS[keyIndex];
-  const resp = await dfuSendText("down ble_rand\r", "ok ");
-  if (!resp) { log("[-] ble_rand failed"); return false; }
-  const cipher = resp.slice(3, 19);
-  if (cipher.length !== 16) { log("[-] unexpected ble_rand cipher length"); return false; }
-  // Which AES direction actually recovers the scooter's original random from
-  // the ble_rand cipher was never independently confirmed — that call goes
-  // to a shared crypto routine at a fixed high address outside this dumped
-  // flash, so it can't be disassembled here. The old "AES ENCRYPT inverts
-  // the scooter's DECRYPT" claim comes from the same source as the
-  // "echoed back verbatim" ble_key claim, which turned out backward — so
-  // don't trust this one on faith either. Try ENCRYPT first (current best
-  // guess), and if the scooter never acks, retry once with DECRYPT.
-  async function tryBleKey(randomCandidate, label) {
+  // The "already authenticated" short-ack path in doAuth() never actually
+  // runs a real challenge-response round, so it never confirms which key
+  // index (profile) the scooter is really keyed to right now — the
+  // UI-selected keyIndex might just be wrong for this session. Sweep all
+  // 5 key indices x both AES directions (ble_rand's real crypto call is a
+  // shared ROM routine outside this dumped flash, so which direction is
+  // correct can't be checked by disassembly) rather than assume.
+  async function tryBleKey(key, randomCandidate, label) {
     const payload = randomCandidate.map((b, i) => b ^ key[i]);
-    log("[*] trying ble_key via " + label + ": random=" + bytesToHex(randomCandidate) + " payload=" + bytesToHex(payload));
+    log("[*] " + label + ": payload=" + bytesToHex(payload));
     notifyQueue.length = 0;
     const keyMsg = concatBytes(strToBytes("down ble_key "), payload, new Uint8Array([0x0d]));
     await send(keyMsg, true);
     return waitForNotify(5000);
   }
 
-  let plainRandom = aesEncryptBlock(cipher, key);
-  let resp2 = await tryBleKey(plainRandom, "AES_ENCRYPT(cipher,key)");
-  if (!resp2 || !bytesStartWith(resp2, strToBytes("ok"))) {
-    log("[-] ENCRYPT direction got " + (resp2 ? bytesToHex(resp2) : null) + " — retrying with AES_DECRYPT direction...");
-    plainRandom = aesDecryptBlock(cipher, key);
-    resp2 = await tryBleKey(plainRandom, "AES_DECRYPT(cipher,key)");
-    if (!resp2 || !bytesStartWith(resp2, strToBytes("ok"))) {
-      log("[-] ble_key rejected with both AES directions: " + (resp2 ? bytesToHex(resp2) : null));
-      return false;
+  const order = [keyIndex, ...AES_KEYS.map((_, i) => i).filter(i => i !== keyIndex)];
+  let resp2 = null;
+  outer:
+  for (const idx of order) {
+    const key = AES_KEYS[idx];
+    const resp = await dfuSendText("down ble_rand\r", "ok ");
+    if (!resp) { log("[-] ble_rand failed while testing key index " + idx); continue; }
+    const cipher = resp.slice(3, 19);
+    if (cipher.length !== 16) { log("[-] unexpected ble_rand cipher length while testing key index " + idx); continue; }
+    for (const [label, aesFn] of [["AES_ENCRYPT", aesEncryptBlock], ["AES_DECRYPT", aesDecryptBlock]]) {
+      const candidate = aesFn(cipher, key);
+      resp2 = await tryBleKey(key, candidate, "key_index=" + idx + " " + label);
+      if (resp2 && bytesStartWith(resp2, strToBytes("ok"))) {
+        log("[+] SUCCESS with key_index=" + idx + ", " + label + " — remember this for future runs.");
+        break outer;
+      }
+      log("[-] key_index=" + idx + " " + label + ": " + (resp2 ? bytesToHex(resp2) : null));
     }
-    log("[+] DECRYPT direction worked — the documented direction was backward.");
-  } else {
-    log("[+] ENCRYPT direction worked (matches current documentation).");
+  }
+  if (!resp2 || !bytesStartWith(resp2, strToBytes("ok"))) {
+    log("[-] ble_key rejected across all 5 key indices and both AES directions.");
+    return false;
   }
   log("[<] " + bytesToHex(resp2));
 
