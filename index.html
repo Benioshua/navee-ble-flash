@@ -586,43 +586,42 @@ async function doDfuHandshake(targetMcu, keyIndex) {
   if (!ack) { log("[-] dfu_start failed"); return false; }
   log("[<] " + bytesToHex(ack));
 
+  // [CORRECTED] Disassembly of UT5 Max's actual ble_rand handler
+  // (0x81D904 -> 0x81D888 -> 0x800eb8) shows it fills the reply buffer
+  // directly from a hardware RNG call, with NO AES or any other transform
+  // applied — the "cipher" in the ble_rand reply IS the raw random value,
+  // sent as-is. The old "AES_DECRYPT(random,key)" claim was wrong; there
+  // is no AES anywhere in this handshake (matches the 0x30/0x31 auth path,
+  // which is pure XOR too). ble_key's check XORs our sent bytes with
+  // key[profile] and compares to this raw random, so the payload to send
+  // is simply cipher XOR key.
+  //
   // The "already authenticated" short-ack path in doAuth() never actually
   // runs a real challenge-response round, so it never confirms which key
-  // index (profile) the scooter is really keyed to right now — the
-  // UI-selected keyIndex might just be wrong for this session. Sweep all
-  // 5 key indices x both AES directions (ble_rand's real crypto call is a
-  // shared ROM routine outside this dumped flash, so which direction is
-  // correct can't be checked by disassembly) rather than assume.
-  async function tryBleKey(key, randomCandidate, label) {
-    const payload = randomCandidate.map((b, i) => b ^ key[i]);
-    log("[*] " + label + ": payload=" + bytesToHex(payload));
-    notifyQueue.length = 0;
-    const keyMsg = concatBytes(strToBytes("down ble_key "), payload, new Uint8Array([0x0d]));
-    await send(keyMsg, true);
-    return waitForNotify(5000);
-  }
-
+  // index (profile) the scooter is really keyed to right now — sweep all
+  // 5 key indices rather than assume the UI-selected one is correct.
   const order = [keyIndex, ...AES_KEYS.map((_, i) => i).filter(i => i !== keyIndex)];
   let resp2 = null;
-  outer:
   for (const idx of order) {
     const key = AES_KEYS[idx];
     const resp = await dfuSendText("down ble_rand\r", "ok ");
     if (!resp) { log("[-] ble_rand failed while testing key index " + idx); continue; }
     const cipher = resp.slice(3, 19);
     if (cipher.length !== 16) { log("[-] unexpected ble_rand cipher length while testing key index " + idx); continue; }
-    for (const [label, aesFn] of [["AES_ENCRYPT", aesEncryptBlock], ["AES_DECRYPT", aesDecryptBlock]]) {
-      const candidate = aesFn(cipher, key);
-      resp2 = await tryBleKey(key, candidate, "key_index=" + idx + " " + label);
-      if (resp2 && bytesStartWith(resp2, strToBytes("ok"))) {
-        log("[+] SUCCESS with key_index=" + idx + ", " + label + " — remember this for future runs.");
-        break outer;
-      }
-      log("[-] key_index=" + idx + " " + label + ": " + (resp2 ? bytesToHex(resp2) : null));
+    const payload = cipher.map((b, i) => b ^ key[i]);
+    log("[*] key_index=" + idx + ": cipher=" + bytesToHex(cipher) + " payload=" + bytesToHex(payload));
+    notifyQueue.length = 0;
+    const keyMsg = concatBytes(strToBytes("down ble_key "), payload, new Uint8Array([0x0d]));
+    await send(keyMsg, true);
+    resp2 = await waitForNotify(5000);
+    if (resp2 && bytesStartWith(resp2, strToBytes("ok"))) {
+      log("[+] SUCCESS with key_index=" + idx + " — remember this for future runs.");
+      break;
     }
+    log("[-] key_index=" + idx + ": " + (resp2 ? bytesToHex(resp2) : null));
   }
   if (!resp2 || !bytesStartWith(resp2, strToBytes("ok"))) {
-    log("[-] ble_key rejected across all 5 key indices and both AES directions.");
+    log("[-] ble_key rejected across all 5 key indices.");
     return false;
   }
   log("[<] " + bytesToHex(resp2));
