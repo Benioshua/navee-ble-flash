@@ -3,157 +3,283 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Navee BLE Flash/Recon</title>
+<title>Navee BLE Flash / Recon</title>
 <style>
-  :root { color-scheme: dark; }
-  body { background:#111; color:#ddd; font-family:-apple-system,Helvetica,Arial,sans-serif; margin:0; padding:16px; }
-  h1 { font-size:18px; margin:0 0 4px; }
-  .sub { color:#888; font-size:12px; margin-bottom:16px; }
-  fieldset { border:1px solid #333; border-radius:8px; margin-bottom:12px; padding:10px 12px; }
-  legend { color:#9ad; font-size:12px; padding:0 6px; }
-  label { display:block; font-size:13px; margin:6px 0; }
+  :root {
+    color-scheme: dark;
+    --bg: #0b0d10;
+    --bg-elev: #14171c;
+    --bg-elev-2: #1b2028;
+    --bg-input: #101317;
+    --border: #262b33;
+    --border-soft: #1c2028;
+    --text: #e7eaf0;
+    --text-dim: #8b93a1;
+    --text-faint: #565d68;
+    --accent: #5b8cff;
+    --accent-hover: #7aa0ff;
+    --accent-soft: #17233d;
+    --accent2: #c08cff;
+    --accent2-hover: #d1a8ff;
+    --accent2-soft: #241a3d;
+    --success: #3ecf8e;
+    --success-soft: #123326;
+    --danger: #ff6b7a;
+    --danger-soft: #3a1620;
+    --warn: #f5b866;
+    --radius-lg: 14px;
+    --radius: 10px;
+    --radius-sm: 7px;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--text); font-family: var(--sans);
+    margin: 0; padding: 16px; max-width: 720px; margin-inline: auto;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .page-header { margin-bottom: 18px; }
+  h1 { font-size: 20px; margin: 0 0 6px; letter-spacing: -0.01em; }
+  .sub { color: var(--text-dim); font-size: 13px; line-height: 1.5; margin: 0; }
+  .sub b { color: var(--text); }
+
+  .card {
+    background: var(--bg-elev); border: 1px solid var(--border);
+    border-radius: var(--radius-lg); padding: 16px; margin-bottom: 14px;
+  }
+  .card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .card-head h2 { font-size: 15px; margin: 0; font-weight: 600; }
+  .step {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px; border-radius: 999px; font-size: 12px; font-weight: 700;
+    background: var(--accent-soft); color: var(--accent); flex-shrink: 0;
+  }
+  .step-relay { background: var(--accent2-soft); color: var(--accent2); font-size: 13px; }
+
+  .hint { color: var(--text-dim); font-size: 12.5px; line-height: 1.5; margin: 0 0 12px; }
+  .hint b { color: var(--text); }
+
+  .field { display: block; margin: 10px 0; }
+  .field-label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 5px; }
+  .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   input[type=text], input[type=number], select {
-    background:#1b1b1b; color:#eee; border:1px solid #333; border-radius:6px;
-    padding:6px 8px; width:100%; box-sizing:border-box; font-size:14px;
+    background: var(--bg-input); color: var(--text); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 10px 11px; width: 100%; font-size: 15px;
+    font-family: inherit;
   }
-  input[type=file] { font-size:13px; }
-  button {
-    background:#2a63c9; color:#fff; border:none; border-radius:6px;
-    padding:10px 14px; font-size:14px; margin-right:8px; margin-top:4px; cursor:pointer;
+  input[type=text]:focus, input[type=number]:focus, select:focus {
+    outline: none; border-color: var(--accent);
   }
-  button:disabled { background:#334; color:#889; cursor:not-allowed; }
-  #log {
-    background:#000; color:#8f8; font-family:ui-monospace,Menlo,Consolas,monospace;
-    font-size:12px; white-space:pre-wrap; word-break:break-all;
-    height:38vh; overflow-y:auto; border-radius:8px; padding:10px; border:1px solid #333;
+  input[type=file] { font-size: 13px; color: var(--text-dim); width: 100%; }
+
+  .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+
+  button { font-family: inherit; cursor: pointer; }
+  .btn {
+    border: none; border-radius: var(--radius-sm); padding: 12px 18px;
+    font-size: 14.5px; font-weight: 600; min-height: 44px;
   }
-  .warn { color:#f66; font-weight:bold; }
+  .btn-primary { background: var(--accent); color: #08101f; }
+  .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+  .btn-accent2 { background: var(--accent2); color: #170c26; }
+  .btn-accent2:hover:not(:disabled) { background: var(--accent2-hover); }
+  .btn:disabled { background: var(--bg-elev-2); color: var(--text-faint); cursor: not-allowed; }
+  .btn-ghost {
+    background: transparent; color: var(--text-dim); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 6px 12px; font-size: 12.5px;
+  }
+  .btn-ghost:hover { color: var(--text); border-color: var(--text-dim); }
+
+  .status { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--text-dim); }
+  .dot { width: 8px; height: 8px; border-radius: 999px; background: var(--text-faint); flex-shrink: 0; }
+  .dot-on { background: var(--success); box-shadow: 0 0 6px var(--success); }
+  .dot-err { background: var(--danger); }
 
   /* ── Settings panel ── */
-  .srow {
-    display:flex; align-items:center; gap:8px; padding:6px 0;
-    border-bottom:1px solid #1c1c1c; flex-wrap:wrap;
-  }
-  .srow:last-child { border-bottom:none; }
-  .slabel { font-size:12px; color:#aac; width:160px; flex-shrink:0; }
-  .bgroup { display:flex; gap:4px; flex-wrap:wrap; }
-  .sb {
-    background:#2a4060; color:#cce; border:none; border-radius:5px;
-    padding:5px 10px; font-size:12px; cursor:pointer; white-space:nowrap;
-  }
-  .sb:disabled { background:#1e2530; color:#556; cursor:not-allowed; }
-  .sb.active { background:#177855; color:#fff; }
-  .sb.danger { background:#7a2020; color:#fcc; }
-  .sb.danger:hover:not(:disabled) { background:#992828; }
-  .sb:hover:not(:disabled):not(.active) { background:#3a5080; }
-  .num-wrap { display:flex; gap:6px; align-items:center; }
-  .num-in {
-    width:62px; background:#1b1b1b; color:#eee; border:1px solid #333;
-    border-radius:5px; padding:5px 6px; font-size:13px; text-align:center;
-  }
-  .num-in:disabled { color:#556; }
   .stitle {
-    font-size:10px; color:#556; text-transform:uppercase;
-    letter-spacing:1px; margin:10px 0 2px; padding-bottom:3px;
-    border-bottom:1px solid #1e1e1e;
+    font-size: 10.5px; color: var(--text-faint); text-transform: uppercase;
+    letter-spacing: 0.06em; margin: 14px 0 6px; padding-bottom: 4px;
+    border-bottom: 1px solid var(--border-soft);
   }
-  .snote { font-size:11px; color:#666; font-style:italic; margin:0 0 8px; }
+  .stitle:first-of-type { margin-top: 0; }
+  .snote { font-size: 12px; color: var(--text-faint); font-style: italic; margin: 0 0 10px; }
+  .srow {
+    display: flex; align-items: center; gap: 10px; padding: 7px 0;
+    border-bottom: 1px solid var(--border-soft); flex-wrap: wrap;
+  }
+  .srow:last-child { border-bottom: none; }
+  .slabel { font-size: 12.5px; color: var(--text-dim); width: 150px; flex-shrink: 0; }
+  .bgroup { display: flex; gap: 6px; flex-wrap: wrap; }
+  .sb {
+    background: var(--bg-elev-2); color: var(--text); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 8px 12px; font-size: 12.5px;
+    min-height: 36px;
+  }
+  .sb:disabled { color: var(--text-faint); cursor: not-allowed; }
+  .sb.active { background: var(--success-soft); color: var(--success); border-color: var(--success); }
+  .sb.danger { background: var(--danger-soft); color: var(--danger); border-color: var(--danger); }
+  .sb:hover:not(:disabled):not(.active) { border-color: var(--text-dim); }
+  .num-wrap { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .num-in {
+    width: 66px; background: var(--bg-input); color: var(--text); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 8px 6px; font-size: 14px; text-align: center;
+  }
+  .num-in:disabled { color: var(--text-faint); }
+
+  /* ── Log ── */
+  .card-log { padding: 12px 12px 14px; }
+  .log-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  .log-toolbar h2 { font-size: 13px; margin: 0; color: var(--text-dim); font-weight: 600; }
+  .log-actions { display: flex; gap: 6px; }
+  #log {
+    background: #000; font-family: var(--mono);
+    font-size: 12px; line-height: 1.5;
+    height: 38vh; overflow-y: auto; overflow-x: hidden;
+    border-radius: var(--radius); padding: 10px; border: 1px solid var(--border-soft);
+  }
+  .logline { white-space: pre-wrap; word-break: break-all; }
+  .log-ok { color: var(--success); }
+  .log-err { color: var(--danger); }
+  .log-crit { color: var(--danger); font-weight: 700; }
+  .log-info { color: #7fb2ff; }
+  .log-dim { color: var(--text-faint); }
+  .log-ws { color: var(--accent2); }
+  .log-ble { color: #8ee0a8; }
 </style>
 </head>
 <body>
-<h1>Navee BLE Flash / Recon</h1>
-<div class="sub">Real Web Bluetooth central — run this in <b>Bluefy</b> on iOS (Safari/Chrome-iOS have no Web Bluetooth at all), or any Chromium browser elsewhere. Host over HTTPS (GitHub Pages works).</div>
+<header class="page-header">
+  <h1>Navee BLE Flash / Recon</h1>
+  <p class="sub">Real Web Bluetooth central — run this in <b>Bluefy</b> on iOS (Safari/Chrome-iOS have no Web Bluetooth at all), or any Chromium browser elsewhere. Host over HTTPS (GitHub Pages works).</p>
+</header>
 
 <!-- ─── 1. Connect ─── -->
-<fieldset>
-  <legend>1. Connect</legend>
-  <label>Device name prefix (leave blank to list ALL nearby BLE devices)
-    <input type="text" id="nameHint" placeholder="e.g. Navee">
+<section class="card">
+  <div class="card-head"><span class="step">1</span><h2>Connect</h2></div>
+  <label class="field">
+    <span class="field-label">Device name prefix</span>
+    <input type="text" id="nameHint" placeholder="leave blank to list all nearby BLE devices">
   </label>
-  <button id="connectBtn">Connect</button>
-  <span id="connStatus"></span>
-</fieldset>
+  <div class="row">
+    <button id="connectBtn" class="btn btn-primary" type="button">Connect</button>
+    <span class="status"><span class="dot" id="connDot"></span><span id="connStatusText">not connected</span></span>
+  </div>
+</section>
 
-<!-- ─── 2. Auth / Flash ─── -->
-<fieldset>
-  <legend>2. Auth / Flash — run "auth" before anything else</legend>
-  <label>Stage
+<!-- ─── 2. Direct BLE Control ─── -->
+<section class="card">
+  <div class="card-head"><span class="step">2</span><h2>Direct BLE Control</h2></div>
+  <p class="hint">Talks to the scooter using our own reverse-engineered protocol — no cloud involved. Run <b>auth</b> first before anything else.</p>
+  <label class="field">
+    <span class="field-label">Stage</span>
     <select id="stage">
-      <option value="auth">auth (read-only: challenge-response + status/serial/firmware reads)</option>
-      <option value="dfu-dryrun">dfu-dryrun (handshake only: dfu_start/ble_rand/ble_key, stop before any data is written)</option>
-      <option value="flash">flash (WRITES firmware to real flash)</option>
+      <option value="auth">auth — read-only: challenge-response + status/serial/firmware reads</option>
+      <option value="dfu-dryrun">dfu-dryrun — handshake only, stops before any data is written</option>
+      <option value="flash">flash — WRITES firmware to real flash</option>
     </select>
   </label>
-  <label>Auth/DFU key index (0-4, from the firmware's own key table)
-    <input type="number" id="keyIndex" value="1" min="0" max="4">
-  </label>
-  <label>DFU target sub-MCU (dfu-dryrun / flash stages only)
-    <select id="dfuTarget">
-      <option value="1">1 = meter</option>
-      <option value="2" selected>2 = bldc</option>
-      <option value="3">3 = bms</option>
-      <option value="4">4 = screen</option>
-    </select>
-  </label>
-  <label>Firmware .bin (flash stage only)
+  <div class="field-grid">
+    <label class="field">
+      <span class="field-label">Key index (0-4)</span>
+      <input type="number" id="keyIndex" value="1" min="0" max="4">
+    </label>
+    <label class="field">
+      <span class="field-label">DFU target sub-MCU</span>
+      <select id="dfuTarget">
+        <option value="1">1 = meter</option>
+        <option value="2" selected>2 = bldc</option>
+        <option value="3">3 = bms</option>
+        <option value="4">4 = screen</option>
+      </select>
+    </label>
+  </div>
+  <label class="field">
+    <span class="field-label">Firmware .bin (flash stage only)</span>
     <input type="file" id="fwFile">
   </label>
-  <button id="runBtn" disabled>Run</button>
-</fieldset>
+  <button id="runBtn" class="btn btn-primary" type="button" disabled>Run</button>
+</section>
 
-<!-- ─── 3. Settings ─── -->
-<fieldset id="settingsPanel">
-  <legend>3. Settings</legend>
-  <p class="snote">Run Auth above first — current values will populate automatically. Buttons unlock after successful auth.</p>
+<!-- ─── 3. Cloud Relay Flash ─── -->
+<section class="card">
+  <div class="card-head"><span class="step step-relay">☁</span><h2>Cloud Relay Flash</h2></div>
+  <p class="hint">
+    Bridges the real 1dragon tuning WebSocket service to your connected scooter: the cloud drives the
+    actual auth/DFU protocol end to end, this page only relays raw bytes both directions over the
+    same BLE connection from step 1. No crypto/key guessing needed on our side — whatever the cloud
+    computes gets written straight to the real scooter, and every real BLE reply gets relayed back up.
+  </p>
+  <label class="field">
+    <span class="field-label">License key</span>
+    <input type="text" id="relayLicense" value="GUB3N-NFABK-C9M2E-WC4BH-BBEDX">
+  </label>
+  <div class="field-grid">
+    <label class="field">
+      <span class="field-label">PID</span>
+      <input type="text" id="relayPid" value="25382" placeholder="e.g. 25382 = UT5 Max">
+    </label>
+    <label class="field">
+      <span class="field-label">Variant</span>
+      <select id="relayVariant">
+        <option value="modded" selected>modded</option>
+        <option value="stock">stock</option>
+      </select>
+    </label>
+  </div>
+  <button id="relayBtn" class="btn btn-accent2" type="button" disabled>Start Cloud Relay Flash</button>
+</section>
 
-  <!-- Read operations -->
+<!-- ─── 4. Settings ─── -->
+<section class="card" id="settingsPanel">
+  <div class="card-head"><span class="step">4</span><h2>Settings</h2></div>
+  <p class="snote">Run Auth above first — current values populate automatically. Buttons unlock after successful auth.</p>
+
   <div class="stitle">Read</div>
   <div class="srow">
     <span class="slabel">Live queries</span>
     <div class="bgroup">
-      <button class="sb" id="btn-refresh" disabled onclick="doRefreshStatus()">↻ Refresh Status</button>
-      <button class="sb" id="btn-battery" disabled onclick="doReadBattery()">Battery</button>
-      <button class="sb" id="btn-firmware" disabled onclick="doReadFirmware()">Firmware</button>
-      <button class="sb" id="btn-serial" disabled onclick="doReadSerial()">Serial</button>
-      <button class="sb" id="btn-history" disabled onclick="doReadHistory()">Drive History</button>
+      <button class="sb" id="btn-refresh" type="button" disabled onclick="doRefreshStatus()">↻ Refresh Status</button>
+      <button class="sb" id="btn-battery" type="button" disabled onclick="doReadBattery()">Battery</button>
+      <button class="sb" id="btn-firmware" type="button" disabled onclick="doReadFirmware()">Firmware</button>
+      <button class="sb" id="btn-serial" type="button" disabled onclick="doReadSerial()">Serial</button>
+      <button class="sb" id="btn-history" type="button" disabled onclick="doReadHistory()">Drive History</button>
     </div>
   </div>
 
-  <!-- Speed / Mode -->
   <div class="stitle">Riding mode</div>
   <div class="srow">
     <span class="slabel">Speed Mode</span>
     <div class="bgroup">
-      <button class="sb" id="btn-eco" disabled onclick="sendSpeedMode(0x03)">ECO</button>
-      <button class="sb" id="btn-sport" disabled onclick="sendSpeedMode(0x05)">SPORT</button>
+      <button class="sb" id="btn-eco" type="button" disabled onclick="sendSpeedMode(0x03)">ECO</button>
+      <button class="sb" id="btn-sport" type="button" disabled onclick="sendSpeedMode(0x05)">SPORT</button>
     </div>
   </div>
   <div class="srow">
     <span class="slabel">ERS (regen) Level</span>
     <div class="bgroup">
-      <button class="sb" id="btn-ers-0" disabled onclick="sendERS(0)">0 — Off</button>
-      <button class="sb" id="btn-ers-1" disabled onclick="sendERS(1)">1 — Low</button>
-      <button class="sb" id="btn-ers-2" disabled onclick="sendERS(2)">2 — Med</button>
-      <button class="sb" id="btn-ers-3" disabled onclick="sendERS(3)">3 — High</button>
+      <button class="sb" id="btn-ers-0" type="button" disabled onclick="sendERS(0)">0 — Off</button>
+      <button class="sb" id="btn-ers-1" type="button" disabled onclick="sendERS(1)">1 — Low</button>
+      <button class="sb" id="btn-ers-2" type="button" disabled onclick="sendERS(2)">2 — Med</button>
+      <button class="sb" id="btn-ers-3" type="button" disabled onclick="sendERS(3)">3 — High</button>
     </div>
   </div>
   <div class="srow">
     <span class="slabel">Startup Speed</span>
     <div class="bgroup">
-      <button class="sb" id="btn-ss-0" disabled onclick="sendStartupSpeed(0)">0 — Walk</button>
-      <button class="sb" id="btn-ss-1" disabled onclick="sendStartupSpeed(1)">1 — Slow</button>
-      <button class="sb" id="btn-ss-2" disabled onclick="sendStartupSpeed(2)">2 — Normal</button>
-      <button class="sb" id="btn-ss-3" disabled onclick="sendStartupSpeed(3)">3 — Fast</button>
+      <button class="sb" id="btn-ss-0" type="button" disabled onclick="sendStartupSpeed(0)">0 — Walk</button>
+      <button class="sb" id="btn-ss-1" type="button" disabled onclick="sendStartupSpeed(1)">1 — Slow</button>
+      <button class="sb" id="btn-ss-2" type="button" disabled onclick="sendStartupSpeed(2)">2 — Normal</button>
+      <button class="sb" id="btn-ss-3" type="button" disabled onclick="sendStartupSpeed(3)">3 — Fast</button>
     </div>
   </div>
 
-  <!-- Speed limits -->
   <div class="stitle">Speed limits</div>
   <div class="srow">
     <span class="slabel">Max Speed (km/h)</span>
     <div class="num-wrap">
       <input type="number" id="maxSpeedVal" class="num-in" min="1" max="35" value="25" disabled aria-label="Max speed in km/h">
-      <button class="sb" id="btn-maxspeed" disabled onclick="sendMaxSpeed()">Set</button>
+      <button class="sb" id="btn-maxspeed" type="button" disabled onclick="sendMaxSpeed()">Set</button>
     </div>
   </div>
   <div class="srow">
@@ -161,59 +287,68 @@
     <div class="num-wrap">
       <input type="number" id="speedLimitVal" class="num-in" min="1" max="35" value="20" disabled aria-label="Speed limit in km/h">
       <div class="bgroup">
-        <button class="sb" id="btn-limit-on" disabled onclick="sendSpeedLimit(true)">Enable</button>
-        <button class="sb" id="btn-limit-off" disabled onclick="sendSpeedLimit(false)">Disable</button>
+        <button class="sb" id="btn-limit-on" type="button" disabled onclick="sendSpeedLimit(true)">Enable</button>
+        <button class="sb" id="btn-limit-off" type="button" disabled onclick="sendSpeedLimit(false)">Disable</button>
       </div>
     </div>
   </div>
 
-  <!-- Toggles -->
   <div class="stitle">Toggles</div>
   <div class="srow">
     <span class="slabel">Lock</span>
     <div class="bgroup">
-      <button class="sb danger" id="btn-lock" disabled onclick="sendLock(true)">🔒 Lock</button>
-      <button class="sb" id="btn-unlock" disabled onclick="sendLock(false)">🔓 Unlock</button>
+      <button class="sb danger" id="btn-lock" type="button" disabled onclick="sendLock(true)">🔒 Lock</button>
+      <button class="sb" id="btn-unlock" type="button" disabled onclick="sendLock(false)">🔓 Unlock</button>
     </div>
   </div>
   <div class="srow">
     <span class="slabel">Cruise Control</span>
     <div class="bgroup">
-      <button class="sb" id="btn-cruise-on" disabled onclick="sendCruise(true)">ON</button>
-      <button class="sb" id="btn-cruise-off" disabled onclick="sendCruise(false)">OFF</button>
+      <button class="sb" id="btn-cruise-on" type="button" disabled onclick="sendCruise(true)">ON</button>
+      <button class="sb" id="btn-cruise-off" type="button" disabled onclick="sendCruise(false)">OFF</button>
     </div>
   </div>
   <div class="srow">
     <span class="slabel">Taillight (0x54)</span>
     <div class="bgroup">
-      <button class="sb" id="btn-tail-on" disabled onclick="sendTaillight(true)">ON</button>
-      <button class="sb" id="btn-tail-off" disabled onclick="sendTaillight(false)">OFF</button>
+      <button class="sb" id="btn-tail-on" type="button" disabled onclick="sendTaillight(true)">ON</button>
+      <button class="sb" id="btn-tail-off" type="button" disabled onclick="sendTaillight(false)">OFF</button>
     </div>
   </div>
   <div class="srow">
     <span class="slabel">Auto Headlight (0x57)</span>
     <div class="bgroup">
-      <button class="sb" id="btn-headlight-on" disabled onclick="sendAutoHeadlight(true)">ON</button>
-      <button class="sb" id="btn-headlight-off" disabled onclick="sendAutoHeadlight(false)">OFF</button>
+      <button class="sb" id="btn-headlight-on" type="button" disabled onclick="sendAutoHeadlight(true)">ON</button>
+      <button class="sb" id="btn-headlight-off" type="button" disabled onclick="sendAutoHeadlight(false)">OFF</button>
     </div>
   </div>
   <div class="srow">
     <span class="slabel">Turn Sound (0x60)</span>
     <div class="bgroup">
-      <button class="sb" id="btn-turnsound-on" disabled onclick="sendTurnSound(true)">ON</button>
-      <button class="sb" id="btn-turnsound-off" disabled onclick="sendTurnSound(false)">OFF</button>
+      <button class="sb" id="btn-turnsound-on" type="button" disabled onclick="sendTurnSound(true)">ON</button>
+      <button class="sb" id="btn-turnsound-off" type="button" disabled onclick="sendTurnSound(false)">OFF</button>
     </div>
   </div>
   <div class="srow">
     <span class="slabel">Traction Control (TCS 0x59)</span>
     <div class="bgroup">
-      <button class="sb" id="btn-tcs-on" disabled onclick="sendTCS(true)">ON</button>
-      <button class="sb" id="btn-tcs-off" disabled onclick="sendTCS(false)">OFF</button>
+      <button class="sb" id="btn-tcs-on" type="button" disabled onclick="sendTCS(true)">ON</button>
+      <button class="sb" id="btn-tcs-off" type="button" disabled onclick="sendTCS(false)">OFF</button>
     </div>
   </div>
-</fieldset>
+</section>
 
-<div id="log"></div>
+<!-- ─── Log ─── -->
+<section class="card card-log">
+  <div class="log-toolbar">
+    <h2>Log</h2>
+    <div class="log-actions">
+      <button class="btn-ghost" id="clearLogBtn" type="button">Clear</button>
+      <button class="btn-ghost" id="copyLogBtn" type="button">Copy</button>
+    </div>
+  </div>
+  <div id="log"></div>
+</section>
 
 <script>
 'use strict';
@@ -426,23 +561,46 @@ if (typeof module !== "undefined") {
 
 // ───────────────────────────────── UI/log ──────────────────────────────────
 const logEl = document.getElementById("log");
+function classifyLog(msg) {
+  if (msg.startsWith("[!!!]")) return "log-crit";
+  if (msg.startsWith("[+]")) return "log-ok";
+  if (msg.startsWith("[-]")) return "log-err";
+  if (msg.startsWith("[*]")) return "log-info";
+  if (msg.startsWith("[.]")) return "log-dim";
+  if (msg.startsWith("[ws")) return "log-ws";
+  if (msg.startsWith("[ble") || msg.startsWith("[<]") || msg.startsWith("[>]")) return "log-ble";
+  return "";
+}
 function log(msg) {
   // Only auto-scroll if the user was already at (or near) the bottom —
   // otherwise a new notification while they've scrolled up to read
   // something yanks them back down.
   const atBottom = logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 4;
-  logEl.textContent += msg + "\n";
+  const line = document.createElement("div");
+  line.className = "logline " + classifyLog(msg);
+  line.textContent = msg;
+  logEl.appendChild(line);
   if (atBottom) logEl.scrollTop = logEl.scrollHeight;
   console.log(msg);
 }
+document.getElementById("clearLogBtn").addEventListener("click", () => { logEl.textContent = ""; });
+document.getElementById("copyLogBtn").addEventListener("click", async () => {
+  const text = Array.from(logEl.querySelectorAll(".logline")).map(el => el.textContent).join("\n");
+  try { await navigator.clipboard.writeText(text); log("[*] log copied to clipboard"); }
+  catch (e) { log("[-] copy failed: " + e); }
+});
 
 // ─────────────────────────── BLE central (Web BT) ──────────────────────────
 let device = null, server = null, charWrite = null, charNotify = null;
 const notifyQueue = [];
 let notifyResolve = null;
+// While a cloud-relay session is active, every notification is forwarded
+// here instead of the normal queue/log path — see the Cloud Relay section.
+let relayNotifyHandler = null;
 
 function onNotify(event) {
   const value = new Uint8Array(event.target.value.buffer);
+  if (relayNotifyHandler) { relayNotifyHandler(value); return; }
   // The scooter pushes unsolicited telemetry (cmd 0x90/0x92) on its own
   // schedule, independent of anything we send. If one lands in notifyQueue
   // between a write and its real reply, waitForNotify() grabs it instead
@@ -703,6 +861,157 @@ async function doDfuFlash(targetMcu, fwBytes, keyIndex) {
 }
 
 // ══════════════════════════════════════════════════════════
+// ──────────── CLOUD RELAY (WebSocket <-> real BLE) ─────────
+// ══════════════════════════════════════════════════════════
+// Bridges wss://ws-navee.1dragon.de:443 to the real scooter. The cloud
+// service plays the "phone app" role and drives the entire auth/DFU
+// protocol on its own — this page never computes any crypto here, it just
+// moves bytes between the two transports. ws_crypto.py's cipher (a fixed
+// 32-byte master key XORed against a per-message random IV) ported below.
+
+const RELAY_WS_URI = "wss://ws-navee.1dragon.de:443";
+const RELAY_MASTER_KEY = hexToBytes("708ce4e1e269c98892e4ad104b41e1b36421d90a70590139f56aec2b19464d0e");
+
+function bytesToBase64(bytes) {
+  let binary = "";
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary);
+}
+function base64ToBytes(b64) {
+  const binary = atob(b64);
+  const out = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
+  return out;
+}
+function relayEncrypt(obj) {
+  const pt = strToBytes(typeof obj === "string" ? obj : JSON.stringify(obj));
+  const iv = crypto.getRandomValues(new Uint8Array(16));
+  const ct = new Uint8Array(pt.length);
+  for (let i = 0; i < pt.length; i++) ct[i] = pt[i] ^ RELAY_MASTER_KEY[i % 32] ^ iv[i % 16];
+  return bytesToBase64(concatBytes(iv, ct));
+}
+function relayDecrypt(b64) {
+  const raw = base64ToBytes(b64);
+  if (raw.length < 16) throw new Error("relay payload too short (" + raw.length + " bytes)");
+  const iv = raw.slice(0, 16);
+  const ct = raw.slice(16);
+  const pt = new Uint8Array(ct.length);
+  for (let i = 0; i < ct.length; i++) pt[i] = ct[i] ^ RELAY_MASTER_KEY[i % 32] ^ iv[i % 16];
+  return new TextDecoder().decode(pt);
+}
+
+let relayWs = null;
+
+async function doCloudRelayFlash(pid, variant, license) {
+  if (!charWrite || !charNotify) { log("[-] connect to the scooter first (step 1)"); return; }
+
+  let dfuStarted = false;
+  try {
+    log("[*] connecting to cloud relay " + RELAY_WS_URI);
+    relayWs = new WebSocket(RELAY_WS_URI);
+    relayWs.addEventListener("close", (ev) => log("[ws] connection closed (code=" + ev.code + ")"));
+
+    await new Promise((resolve, reject) => {
+      relayWs.addEventListener("open", () => resolve(), { once: true });
+      relayWs.addEventListener("error", () => reject(new Error("WebSocket connection failed")), { once: true });
+    });
+    log("[+] cloud relay connected");
+
+    // Real scooter -> cloud: forward EVERY notification verbatim, including
+    // unsolicited telemetry — the cloud plays the app role and expects to
+    // see it the same way a real phone would, unlike our own direct-BLE
+    // functions above which filter telemetry out for their own convenience.
+    relayNotifyHandler = (value) => {
+      log("[ble>ws] " + bytesToHex(value));
+      relayWs.send(relayEncrypt({ type: "ble_notify", data: bytesToHex(value) }));
+    };
+
+    const msgQueue = [];
+    let msgResolve = null;
+    relayWs.addEventListener("message", (event) => {
+      if (typeof event.data !== "string") { log("[-] unexpected binary WS frame"); return; }
+      let msg;
+      try { msg = JSON.parse(relayDecrypt(event.data)); }
+      catch (e) { log("[-] relay decrypt/parse failed: " + e); return; }
+      msgQueue.push(msg);
+      if (msgResolve) { const r = msgResolve; msgResolve = null; r(); }
+    });
+    function waitForRelayMsg(timeoutMs = 20000) {
+      return new Promise(resolve => {
+        if (msgQueue.length > 0) { resolve(msgQueue.shift()); return; }
+        const t = setTimeout(() => { msgResolve = null; resolve(null); }, timeoutMs);
+        msgResolve = () => { clearTimeout(t); resolve(msgQueue.shift()); };
+      });
+    }
+    function sendToRelay(obj) {
+      log("[ws>] " + JSON.stringify(obj).slice(0, 140));
+      relayWs.send(relayEncrypt(obj));
+    }
+
+    sendToRelay({ type: "set_license", license_key: license, request_id: "lr_1" });
+    const licResp = await waitForRelayMsg();
+    if (!licResp || !licResp.license_valid) { log("[-] license invalid: " + JSON.stringify(licResp)); return false; }
+    log("[+] license valid, slots " + licResp.slots_used + "/" + licResp.slots_total);
+
+    sendToRelay({ type: "start_auth", pid: pid });
+
+    while (true) {
+      const msg = await waitForRelayMsg(30000);
+      if (!msg) { log("[-] relay stream timeout"); break; }
+      const mtype = msg.type;
+
+      if (mtype === "ble_write") {
+        const raw = hexToBytes(msg.data || "");
+        const withResponse = !msg.no_response;
+        log("[ws>ble] " + (msg.data || "").slice(0, 48) + (msg.no_response ? " (no_response)" : ""));
+        try {
+          await send(raw, withResponse);
+        } catch (e) {
+          log("[!!!] BLE write failed during relay: " + e);
+          if (dfuStarted) {
+            log("[!!!] This happened after dfu_flash was requested — the target MCU may be left " +
+                "in a PARTIALLY-WRITTEN state. Do NOT power-cycle the scooter.");
+          }
+          break;
+        }
+      } else if (mtype === "auth_ok") {
+        log("[+] relay reports auth_ok");
+      } else if (mtype === "firmware_info") {
+        log("[+] firmware_info: " + JSON.stringify(msg));
+        if (!dfuStarted) {
+          const proceed = confirm(
+            "About to relay a REAL flash from the cloud service onto your connected scooter.\n" +
+            "PID=" + pid + "  variant=" + variant + "\n\n" +
+            "The cloud drives the entire DFU/XMODEM exchange; this page only relays bytes " +
+            "between it and the real BLE connection. Proceed?"
+          );
+          if (!proceed) { log("[-] Aborted before dfu_flash."); break; }
+          dfuStarted = true;
+          sendToRelay({ type: "dfu_flash", pid: pid, variant: variant });
+        }
+      } else if (mtype === "dfu_complete") {
+        log("[+] dfu_complete — cloud relay reports the flash finished!");
+        break;
+      } else if (mtype === "dfu_error" || mtype === "error") {
+        log("[-] relay error: " + JSON.stringify(msg));
+        break;
+      } else if (mtype === "auth_fail" || mtype === "unsupported_pid") {
+        log("[-] " + mtype + ": " + JSON.stringify(msg));
+        break;
+      } else {
+        log("[.] " + mtype + ": " + JSON.stringify(msg).slice(0, 160));
+      }
+    }
+  } catch (e) {
+    log("[!!!] Cloud relay error: " + e);
+  } finally {
+    relayNotifyHandler = null;
+    if (relayWs) { try { relayWs.close(); } catch (_) {} }
+    log("[*] cloud relay session ended.");
+  }
+}
+
+// ══════════════════════════════════════════════════════════
 // ──────────────── SETTINGS HELPERS ────────────────────────
 // ══════════════════════════════════════════════════════════
 
@@ -748,24 +1057,15 @@ function applyStatus(payload) {
   const turnSound     = payload.length > 13 ? payload[13] !== 0 : false;
   const maxSpeed      = payload.length > 26 ? payload[26] : 0;
 
-  // Speed mode
   markActive(speedMode === 0x05 ? 'btn-sport' : 'btn-eco', 'btn-eco', 'btn-sport');
-  // Lock
   markActive(locked ? 'btn-lock' : 'btn-unlock', 'btn-lock', 'btn-unlock');
-  // Cruise
   markActive(cruiseOn ? 'btn-cruise-on' : 'btn-cruise-off', 'btn-cruise-on', 'btn-cruise-off');
-  // Taillight
   markActive(taillightOn ? 'btn-tail-on' : 'btn-tail-off', 'btn-tail-on', 'btn-tail-off');
-  // Auto headlight
   markActive(autoHeadlight ? 'btn-headlight-on' : 'btn-headlight-off', 'btn-headlight-on', 'btn-headlight-off');
-  // Turn sound
   markActive(turnSound ? 'btn-turnsound-on' : 'btn-turnsound-off', 'btn-turnsound-on', 'btn-turnsound-off');
-  // TCS
   markActive(tcsOn ? 'btn-tcs-on' : 'btn-tcs-off', 'btn-tcs-on', 'btn-tcs-off');
-  // ERS level
   const ersIds = ['btn-ers-0','btn-ers-1','btn-ers-2','btn-ers-3'];
   if (ersLevel >= 0 && ersLevel <= 3) markActive(ersIds[ersLevel], ...ersIds);
-  // Max speed
   if (maxSpeed > 0) document.getElementById('maxSpeedVal').value = maxSpeed;
 
   log("[*] status → speedMode=" + (speedMode === 0x05 ? "SPORT" : "ECO") +
@@ -791,69 +1091,48 @@ async function sendSetting(label, cmd, payload) {
 // ──────────────── SETTINGS SENDERS ────────────────────────
 // ══════════════════════════════════════════════════════════
 
-// 0x58 — Speed mode (ECO=0x03, SPORT=0x05)
 async function sendSpeedMode(mode) {
   await sendSetting("speed_mode(0x" + mode.toString(16) + ")", 0x58, new Uint8Array([mode]));
   markActive(mode === 0x05 ? 'btn-sport' : 'btn-eco', 'btn-eco', 'btn-sport');
 }
-
-// 0x51 — Lock/unlock
 async function sendLock(locked) {
   await sendSetting("lock=" + locked, 0x51, new Uint8Array([locked ? 0x01 : 0x00]));
   markActive(locked ? 'btn-lock' : 'btn-unlock', 'btn-lock', 'btn-unlock');
 }
-
-// 0x52 — Cruise control
 async function sendCruise(on) {
   await sendSetting("cruise=" + on, 0x52, new Uint8Array([on ? 0x01 : 0x00]));
   markActive(on ? 'btn-cruise-on' : 'btn-cruise-off', 'btn-cruise-on', 'btn-cruise-off');
 }
-
-// 0x54 — Taillight
 async function sendTaillight(on) {
   await sendSetting("taillight=" + on, 0x54, new Uint8Array([on ? 0x01 : 0x00]));
   markActive(on ? 'btn-tail-on' : 'btn-tail-off', 'btn-tail-on', 'btn-tail-off');
 }
-
-// 0x57 — Auto headlight sensor
 async function sendAutoHeadlight(on) {
   await sendSetting("auto_headlight=" + on, 0x57, new Uint8Array([on ? 0x01 : 0x00]));
   markActive(on ? 'btn-headlight-on' : 'btn-headlight-off', 'btn-headlight-on', 'btn-headlight-off');
 }
-
-// 0x59 — Traction control (TCS)
 async function sendTCS(on) {
   await sendSetting("tcs=" + on, 0x59, new Uint8Array([on ? 0x01 : 0x00]));
   markActive(on ? 'btn-tcs-on' : 'btn-tcs-off', 'btn-tcs-on', 'btn-tcs-off');
 }
-
-// 0x60 — Turn signal sound
 async function sendTurnSound(on) {
   await sendSetting("turn_sound=" + on, 0x60, new Uint8Array([on ? 0x01 : 0x00]));
   markActive(on ? 'btn-turnsound-on' : 'btn-turnsound-off', 'btn-turnsound-on', 'btn-turnsound-off');
 }
-
-// 0x53 — ERS (regenerative braking) level 0-3
 async function sendERS(level) {
   await sendSetting("ers=" + level, 0x53, new Uint8Array([level]));
   const ids = ['btn-ers-0','btn-ers-1','btn-ers-2','btn-ers-3'];
   markActive(ids[level], ...ids);
 }
-
-// 0x6A — Startup speed level (0=walk, 1=slow, 2=normal, 3=fast)
 async function sendStartupSpeed(level) {
   await sendSetting("startup_speed=" + level, 0x6A, new Uint8Array([level]));
   markActive('btn-ss-' + level, 'btn-ss-0', 'btn-ss-1', 'btn-ss-2', 'btn-ss-3');
 }
-
-// 0x6E — Max speed in km/h  [payload: 0x01, kmh]
 async function sendMaxSpeed() {
   const kmh = parseInt(document.getElementById('maxSpeedVal').value, 10);
   if (isNaN(kmh) || kmh < 1 || kmh > 35) { log("[-] invalid max speed value"); return; }
   await sendSetting("max_speed=" + kmh + "km/h", 0x6E, new Uint8Array([0x01, kmh]));
 }
-
-// 0x6B — Custom speed limit  [payload: 0x80|kmh if enabled, 0x00 if disabled]
 async function sendSpeedLimit(enabled) {
   const kmh = parseInt(document.getElementById('speedLimitVal').value, 10);
   const value = enabled ? (0x80 | (kmh & 0x7F)) : 0x00;
@@ -877,14 +1156,20 @@ async function doReadHistory()  { if (charWrite) await query(0x76); else log("[-
 
 // ────────────────────────────────── Wiring ─────────────────────────────────
 document.getElementById("connectBtn").addEventListener("click", async () => {
-  document.getElementById("connStatus").textContent = "connecting...";
+  const dot = document.getElementById("connDot");
+  const statusText = document.getElementById("connStatusText");
+  statusText.textContent = "connecting...";
+  dot.className = "dot";
   try {
     await connect();
-    document.getElementById("connStatus").textContent = "connected: " + device.name;
+    statusText.textContent = "connected: " + device.name;
+    dot.className = "dot dot-on";
     document.getElementById("runBtn").disabled = false;
+    document.getElementById("relayBtn").disabled = false;
   } catch (e) {
     log("[-] connect error: " + e);
-    document.getElementById("connStatus").textContent = "connect failed";
+    statusText.textContent = "connect failed";
+    dot.className = "dot dot-err";
   }
 });
 
@@ -925,6 +1210,23 @@ document.getElementById("runBtn").addEventListener("click", async () => {
     log("[!!!] Unexpected error: " + e);
   } finally {
     runBtn.disabled = false;
+  }
+});
+
+document.getElementById("relayBtn").addEventListener("click", async () => {
+  const relayBtn = document.getElementById("relayBtn");
+  relayBtn.disabled = true;
+  try {
+    const license = document.getElementById("relayLicense").value.trim();
+    const pid = document.getElementById("relayPid").value.trim();
+    const variant = document.getElementById("relayVariant").value;
+    if (!license) { log("[-] license key required"); return; }
+    if (!pid) { log("[-] PID required"); return; }
+    await doCloudRelayFlash(pid, variant, license);
+  } catch (e) {
+    log("[!!!] Unexpected error: " + e);
+  } finally {
+    relayBtn.disabled = false;
   }
 });
 
