@@ -505,6 +505,15 @@ async function doAuth(keyIndex) {
   const frame = parseFrame(resp);
   if (frame.type !== "navee" || frame.cmd !== 0x30) { log("[-] unexpected 0x30 reply"); return false; }
   const payload = frame.payload;
+  // A 1-byte [0x00] reply is the scooter's post-auth 0x30 poll ack (same
+  // shape as ST3's captured round-2 exchange, sent once already
+  // authenticated) — some devices apparently retain this state across a
+  // fresh GATT (re)connection rather than resetting it, so treat it as
+  // immediate success rather than a failure.
+  if (payload.length === 1 && payload[0] === 0) {
+    log("[<] 0x30 short ack [0x00] — scooter already authenticated, skipping challenge.");
+    return true;
+  }
   // Leading-zero prefix length varies by model — ST3's BLE chip sends
   // [0x00,0x00]+16-byte random (18 bytes total), UT5 Max's meter/BLE chip
   // sends just [0x00]+16 bytes (17 total). Both qualify for the app's XOR
