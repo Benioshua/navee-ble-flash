@@ -1,0 +1,897 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Navee BLE Flash/Recon</title>
+<style>
+  :root { color-scheme: dark; }
+  body { background:#111; color:#ddd; font-family:-apple-system,Helvetica,Arial,sans-serif; margin:0; padding:16px; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  .sub { color:#888; font-size:12px; margin-bottom:16px; }
+  fieldset { border:1px solid #333; border-radius:8px; margin-bottom:12px; padding:10px 12px; }
+  legend { color:#9ad; font-size:12px; padding:0 6px; }
+  label { display:block; font-size:13px; margin:6px 0; }
+  input[type=text], input[type=number], select {
+    background:#1b1b1b; color:#eee; border:1px solid #333; border-radius:6px;
+    padding:6px 8px; width:100%; box-sizing:border-box; font-size:14px;
+  }
+  input[type=file] { font-size:13px; }
+  button {
+    background:#2a63c9; color:#fff; border:none; border-radius:6px;
+    padding:10px 14px; font-size:14px; margin-right:8px; margin-top:4px; cursor:pointer;
+  }
+  button:disabled { background:#334; color:#889; cursor:not-allowed; }
+  #log {
+    background:#000; color:#8f8; font-family:ui-monospace,Menlo,Consolas,monospace;
+    font-size:12px; white-space:pre-wrap; word-break:break-all;
+    height:38vh; overflow-y:auto; border-radius:8px; padding:10px; border:1px solid #333;
+  }
+  .warn { color:#f66; font-weight:bold; }
+
+  /* ── Settings panel ── */
+  .srow {
+    display:flex; align-items:center; gap:8px; padding:6px 0;
+    border-bottom:1px solid #1c1c1c; flex-wrap:wrap;
+  }
+  .srow:last-child { border-bottom:none; }
+  .slabel { font-size:12px; color:#aac; width:160px; flex-shrink:0; }
+  .bgroup { display:flex; gap:4px; flex-wrap:wrap; }
+  .sb {
+    background:#2a4060; color:#cce; border:none; border-radius:5px;
+    padding:5px 10px; font-size:12px; cursor:pointer; white-space:nowrap;
+  }
+  .sb:disabled { background:#1e2530; color:#556; cursor:not-allowed; }
+  .sb.active { background:#177855; color:#fff; }
+  .sb.danger { background:#7a2020; color:#fcc; }
+  .sb.danger:hover:not(:disabled) { background:#992828; }
+  .sb:hover:not(:disabled):not(.active) { background:#3a5080; }
+  .num-wrap { display:flex; gap:6px; align-items:center; }
+  .num-in {
+    width:62px; background:#1b1b1b; color:#eee; border:1px solid #333;
+    border-radius:5px; padding:5px 6px; font-size:13px; text-align:center;
+  }
+  .num-in:disabled { color:#556; }
+  .stitle {
+    font-size:10px; color:#556; text-transform:uppercase;
+    letter-spacing:1px; margin:10px 0 2px; padding-bottom:3px;
+    border-bottom:1px solid #1e1e1e;
+  }
+  .snote { font-size:11px; color:#666; font-style:italic; margin:0 0 8px; }
+</style>
+</head>
+<body>
+<h1>Navee BLE Flash / Recon</h1>
+<div class="sub">Real Web Bluetooth central — run this in <b>Bluefy</b> on iOS (Safari/Chrome-iOS have no Web Bluetooth at all), or any Chromium browser elsewhere. Host over HTTPS (GitHub Pages works).</div>
+
+<!-- ─── 1. Connect ─── -->
+<fieldset>
+  <legend>1. Connect</legend>
+  <label>Device name prefix (leave blank to list ALL nearby BLE devices)
+    <input type="text" id="nameHint" placeholder="e.g. Navee">
+  </label>
+  <button id="connectBtn">Connect</button>
+  <span id="connStatus"></span>
+</fieldset>
+
+<!-- ─── 2. Auth / Flash ─── -->
+<fieldset>
+  <legend>2. Auth / Flash — run "auth" before anything else</legend>
+  <label>Stage
+    <select id="stage">
+      <option value="auth">auth (read-only: challenge-response + status/serial/firmware reads)</option>
+      <option value="dfu-dryrun">dfu-dryrun (handshake only: dfu_start/ble_rand/ble_key, stop before any data is written)</option>
+      <option value="flash">flash (WRITES firmware to real flash)</option>
+    </select>
+  </label>
+  <label>Auth/DFU key index (0-4, from the firmware's own key table)
+    <input type="number" id="keyIndex" value="1" min="0" max="4">
+  </label>
+  <label>DFU target sub-MCU (dfu-dryrun / flash stages only)
+    <select id="dfuTarget">
+      <option value="1">1 = meter</option>
+      <option value="2" selected>2 = bldc</option>
+      <option value="3">3 = bms</option>
+      <option value="4">4 = screen</option>
+    </select>
+  </label>
+  <label>Firmware .bin (flash stage only)
+    <input type="file" id="fwFile">
+  </label>
+  <button id="runBtn" disabled>Run</button>
+</fieldset>
+
+<!-- ─── 3. Settings ─── -->
+<fieldset id="settingsPanel">
+  <legend>3. Settings</legend>
+  <p class="snote">Run Auth above first — current values will populate automatically. Buttons unlock after successful auth.</p>
+
+  <!-- Read operations -->
+  <div class="stitle">Read</div>
+  <div class="srow">
+    <span class="slabel">Live queries</span>
+    <div class="bgroup">
+      <button class="sb" id="btn-refresh" disabled onclick="doRefreshStatus()">↻ Refresh Status</button>
+      <button class="sb" id="btn-battery" disabled onclick="doReadBattery()">Battery</button>
+      <button class="sb" id="btn-firmware" disabled onclick="doReadFirmware()">Firmware</button>
+      <button class="sb" id="btn-serial" disabled onclick="doReadSerial()">Serial</button>
+      <button class="sb" id="btn-history" disabled onclick="doReadHistory()">Drive History</button>
+    </div>
+  </div>
+
+  <!-- Speed / Mode -->
+  <div class="stitle">Riding mode</div>
+  <div class="srow">
+    <span class="slabel">Speed Mode</span>
+    <div class="bgroup">
+      <button class="sb" id="btn-eco" disabled onclick="sendSpeedMode(0x03)">ECO</button>
+      <button class="sb" id="btn-sport" disabled onclick="sendSpeedMode(0x05)">SPORT</button>
+    </div>
+  </div>
+  <div class="srow">
+    <span class="slabel">ERS (regen) Level</span>
+    <div class="bgroup">
+      <button class="sb" id="btn-ers-0" disabled onclick="sendERS(0)">0 — Off</button>
+      <button class="sb" id="btn-ers-1" disabled onclick="sendERS(1)">1 — Low</button>
+      <button class="sb" id="btn-ers-2" disabled onclick="sendERS(2)">2 — Med</button>
+      <button class="sb" id="btn-ers-3" disabled onclick="sendERS(3)">3 — High</button>
+    </div>
+  </div>
+  <div class="srow">
+    <span class="slabel">Startup Speed</span>
+    <div class="bgroup">
+      <button class="sb" id="btn-ss-0" disabled onclick="sendStartupSpeed(0)">0 — Walk</button>
+      <button class="sb" id="btn-ss-1" disabled onclick="sendStartupSpeed(1)">1 — Slow</button>
+      <button class="sb" id="btn-ss-2" disabled onclick="sendStartupSpeed(2)">2 — Normal</button>
+      <button class="sb" id="btn-ss-3" disabled onclick="sendStartupSpeed(3)">3 — Fast</button>
+    </div>
+  </div>
+
+  <!-- Speed limits -->
+  <div class="stitle">Speed limits</div>
+  <div class="srow">
+    <span class="slabel">Max Speed (km/h)</span>
+    <div class="num-wrap">
+      <input type="number" id="maxSpeedVal" class="num-in" min="1" max="35" value="25" disabled aria-label="Max speed in km/h">
+      <button class="sb" id="btn-maxspeed" disabled onclick="sendMaxSpeed()">Set</button>
+    </div>
+  </div>
+  <div class="srow">
+    <span class="slabel">Speed Limit (km/h)</span>
+    <div class="num-wrap">
+      <input type="number" id="speedLimitVal" class="num-in" min="1" max="35" value="20" disabled aria-label="Speed limit in km/h">
+      <div class="bgroup">
+        <button class="sb" id="btn-limit-on" disabled onclick="sendSpeedLimit(true)">Enable</button>
+        <button class="sb" id="btn-limit-off" disabled onclick="sendSpeedLimit(false)">Disable</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toggles -->
+  <div class="stitle">Toggles</div>
+  <div class="srow">
+    <span class="slabel">Lock</span>
+    <div class="bgroup">
+      <button class="sb danger" id="btn-lock" disabled onclick="sendLock(true)">🔒 Lock</button>
+      <button class="sb" id="btn-unlock" disabled onclick="sendLock(false)">🔓 Unlock</button>
+    </div>
+  </div>
+  <div class="srow">
+    <span class="slabel">Cruise Control</span>
+    <div class="bgroup">
+      <button class="sb" id="btn-cruise-on" disabled onclick="sendCruise(true)">ON</button>
+      <button class="sb" id="btn-cruise-off" disabled onclick="sendCruise(false)">OFF</button>
+    </div>
+  </div>
+  <div class="srow">
+    <span class="slabel">Taillight (0x54)</span>
+    <div class="bgroup">
+      <button class="sb" id="btn-tail-on" disabled onclick="sendTaillight(true)">ON</button>
+      <button class="sb" id="btn-tail-off" disabled onclick="sendTaillight(false)">OFF</button>
+    </div>
+  </div>
+  <div class="srow">
+    <span class="slabel">Auto Headlight (0x57)</span>
+    <div class="bgroup">
+      <button class="sb" id="btn-headlight-on" disabled onclick="sendAutoHeadlight(true)">ON</button>
+      <button class="sb" id="btn-headlight-off" disabled onclick="sendAutoHeadlight(false)">OFF</button>
+    </div>
+  </div>
+  <div class="srow">
+    <span class="slabel">Turn Sound (0x60)</span>
+    <div class="bgroup">
+      <button class="sb" id="btn-turnsound-on" disabled onclick="sendTurnSound(true)">ON</button>
+      <button class="sb" id="btn-turnsound-off" disabled onclick="sendTurnSound(false)">OFF</button>
+    </div>
+  </div>
+  <div class="srow">
+    <span class="slabel">Traction Control (TCS 0x59)</span>
+    <div class="bgroup">
+      <button class="sb" id="btn-tcs-on" disabled onclick="sendTCS(true)">ON</button>
+      <button class="sb" id="btn-tcs-off" disabled onclick="sendTCS(false)">OFF</button>
+    </div>
+  </div>
+</fieldset>
+
+<div id="log"></div>
+
+<script>
+'use strict';
+
+// ─────────────────────────── Protocol constants ───────────────────────────
+const SERVICE_UUID = "0000d0ff-3c17-d293-8e48-14fe2e4da212";
+
+const AES_KEYS = [
+  "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+  "446d10726dbe05f662dfaaf01327303f",
+  "a285ccec814fe961742995e8eba92247",
+  "3fee80ff96df5cf542eaac93281fe529",
+  "4eb4d464d6ef53ed6ce94558de9a5ee3",
+].map(hexToBytes);
+
+const DFU_MCU_NAMES = {1:"meter", 2:"bldc", 3:"bms", 4:"screen"};
+
+function hexToBytes(hex) {
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.substr(i * 2, 2), 16);
+  return out;
+}
+function bytesToHex(bytes) {
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+function strToBytes(s) { return new TextEncoder().encode(s); }
+function bytesStartWith(a, prefix) {
+  if (!a || a.length < prefix.length) return false;
+  for (let i = 0; i < prefix.length; i++) if (a[i] !== prefix[i]) return false;
+  return true;
+}
+function concatBytes(...arrs) {
+  const total = arrs.reduce((n, a) => n + a.length, 0);
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const a of arrs) { out.set(a, off); off += a.length; }
+  return out;
+}
+
+// ───────────────────────── Pure-JS AES-128 (ECB) ───────────────────────────
+const SBOX = new Uint8Array([
+  0x63,0x7c,0x77,0x7b,0xf2,0x6b,0x6f,0xc5,0x30,0x01,0x67,0x2b,0xfe,0xd7,0xab,0x76,
+  0xca,0x82,0xc9,0x7d,0xfa,0x59,0x47,0xf0,0xad,0xd4,0xa2,0xaf,0x9c,0xa4,0x72,0xc0,
+  0xb7,0xfd,0x93,0x26,0x36,0x3f,0xf7,0xcc,0x34,0xa5,0xe5,0xf1,0x71,0xd8,0x31,0x15,
+  0x04,0xc7,0x23,0xc3,0x18,0x96,0x05,0x9a,0x07,0x12,0x80,0xe2,0xeb,0x27,0xb2,0x75,
+  0x09,0x83,0x2c,0x1a,0x1b,0x6e,0x5a,0xa0,0x52,0x3b,0xd6,0xb3,0x29,0xe3,0x2f,0x84,
+  0x53,0xd1,0x00,0xed,0x20,0xfc,0xb1,0x5b,0x6a,0xcb,0xbe,0x39,0x4a,0x4c,0x58,0xcf,
+  0xd0,0xef,0xaa,0xfb,0x43,0x4d,0x33,0x85,0x45,0xf9,0x02,0x7f,0x50,0x3c,0x9f,0xa8,
+  0x51,0xa3,0x40,0x8f,0x92,0x9d,0x38,0xf5,0xbc,0xb6,0xda,0x21,0x10,0xff,0xf3,0xd2,
+  0xcd,0x0c,0x13,0xec,0x5f,0x97,0x44,0x17,0xc4,0xa7,0x7e,0x3d,0x64,0x5d,0x19,0x73,
+  0x60,0x81,0x4f,0xdc,0x22,0x2a,0x90,0x88,0x46,0xee,0xb8,0x14,0xde,0x5e,0x0b,0xdb,
+  0xe0,0x32,0x3a,0x0a,0x49,0x06,0x24,0x5c,0xc2,0xd3,0xac,0x62,0x91,0x95,0xe4,0x79,
+  0xe7,0xc8,0x37,0x6d,0x8d,0xd5,0x4e,0xa9,0x6c,0x56,0xf4,0xea,0x65,0x7a,0xae,0x08,
+  0xba,0x78,0x25,0x2e,0x1c,0xa6,0xb4,0xc6,0xe8,0xdd,0x74,0x1f,0x4b,0xbd,0x8b,0x8a,
+  0x70,0x3e,0xb5,0x66,0x48,0x03,0xf6,0x0e,0x61,0x35,0x57,0xb9,0x86,0xc1,0x1d,0x9e,
+  0xe1,0xf8,0x98,0x11,0x69,0xd9,0x8e,0x94,0x9b,0x1e,0x87,0xe9,0xce,0x55,0x28,0xdf,
+  0x8c,0xa1,0x89,0x0d,0xbf,0xe6,0x42,0x68,0x41,0x99,0x2d,0x0f,0xb0,0x54,0xbb,0x16,
+]);
+const INV_SBOX = new Uint8Array([
+  0x52,0x09,0x6a,0xd5,0x30,0x36,0xa5,0x38,0xbf,0x40,0xa3,0x9e,0x81,0xf3,0xd7,0xfb,
+  0x7c,0xe3,0x39,0x82,0x9b,0x2f,0xff,0x87,0x34,0x8e,0x43,0x44,0xc4,0xde,0xe9,0xcb,
+  0x54,0x7b,0x94,0x32,0xa6,0xc2,0x23,0x3d,0xee,0x4c,0x95,0x0b,0x42,0xfa,0xc3,0x4e,
+  0x08,0x2e,0xa1,0x66,0x28,0xd9,0x24,0xb2,0x76,0x5b,0xa2,0x49,0x6d,0x8b,0xd1,0x25,
+  0x72,0xf8,0xf6,0x64,0x86,0x68,0x98,0x16,0xd4,0xa4,0x5c,0xcc,0x5d,0x65,0xb6,0x92,
+  0x6c,0x70,0x48,0x50,0xfd,0xed,0xb9,0xda,0x5e,0x15,0x46,0x57,0xa7,0x8d,0x9d,0x84,
+  0x90,0xd8,0xab,0x00,0x8c,0xbc,0xd3,0x0a,0xf7,0xe4,0x58,0x05,0xb8,0xb3,0x45,0x06,
+  0xd0,0x2c,0x1e,0x8f,0xca,0x3f,0x0f,0x02,0xc1,0xaf,0xbd,0x03,0x01,0x13,0x8a,0x6b,
+  0x3a,0x91,0x11,0x41,0x4f,0x67,0xdc,0xea,0x97,0xf2,0xcf,0xce,0xf0,0xb4,0xe6,0x73,
+  0x96,0xac,0x74,0x22,0xe7,0xad,0x35,0x85,0xe2,0xf9,0x37,0xe8,0x1c,0x75,0xdf,0x6e,
+  0x47,0xf1,0x1a,0x71,0x1d,0x29,0xc5,0x89,0x6f,0xb7,0x62,0x0e,0xaa,0x18,0xbe,0x1b,
+  0xfc,0x56,0x3e,0x4b,0xc6,0xd2,0x79,0x20,0x9a,0xdb,0xc0,0xfe,0x78,0xcd,0x5a,0xf4,
+  0x1f,0xdd,0xa8,0x33,0x88,0x07,0xc7,0x31,0xb1,0x12,0x10,0x59,0x27,0x80,0xec,0x5f,
+  0x60,0x51,0x7f,0xa9,0x19,0xb5,0x4a,0x0d,0x2d,0xe5,0x7a,0x9f,0x93,0xc9,0x9c,0xef,
+  0xa0,0xe0,0x3b,0x4d,0xae,0x2a,0xf5,0xb0,0xc8,0xeb,0xbb,0x3c,0x83,0x53,0x99,0x61,
+  0x17,0x2b,0x04,0x7e,0xba,0x77,0xd6,0x26,0xe1,0x69,0x14,0x63,0x55,0x21,0x0c,0x7d,
+]);
+const RCON = [0x00,0x01,0x02,0x04,0x08,0x10,0x20,0x40,0x80,0x1B,0x36];
+
+function gmul(a, b) {
+  let p = 0;
+  for (let i = 0; i < 8; i++) {
+    if (b & 1) p ^= a;
+    const hi = a & 0x80;
+    a = (a << 1) & 0xFF;
+    if (hi) a ^= 0x1B;
+    b >>= 1;
+  }
+  return p;
+}
+function keyExpansion(key) {
+  const Nk = 4, Nr = 10;
+  const w = [];
+  for (let i = 0; i < Nk; i++) w.push(key.slice(i * 4, i * 4 + 4));
+  for (let i = Nk; i < 4 * (Nr + 1); i++) {
+    let temp = w[i - 1];
+    if (i % Nk === 0) {
+      const rot = new Uint8Array([temp[1], temp[2], temp[3], temp[0]]);
+      const sub = new Uint8Array([SBOX[rot[0]], SBOX[rot[1]], SBOX[rot[2]], SBOX[rot[3]]]);
+      temp = new Uint8Array([sub[0] ^ RCON[i / Nk], sub[1], sub[2], sub[3]]);
+    }
+    const prev = w[i - Nk];
+    w.push(new Uint8Array([prev[0] ^ temp[0], prev[1] ^ temp[1], prev[2] ^ temp[2], prev[3] ^ temp[3]]));
+  }
+  const roundKeys = [];
+  for (let i = 0; i <= Nr; i++) {
+    const rk = new Uint8Array(16);
+    for (let j = 0; j < 4; j++) rk.set(w[i * 4 + j], j * 4);
+    roundKeys.push(rk);
+  }
+  return roundKeys;
+}
+function subBytes(s, box) { return s.map(b => box[b]); }
+function addRoundKey(s, rk) { return s.map((b, i) => b ^ rk[i]); }
+function shiftRows(s) {
+  const out = new Uint8Array(16);
+  for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) out[r + 4 * c] = s[r + 4 * ((c + r) % 4)];
+  return out;
+}
+function invShiftRows(s) {
+  const out = new Uint8Array(16);
+  for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) out[r + 4 * c] = s[r + 4 * ((c - r + 4) % 4)];
+  return out;
+}
+function mixColumns(s) {
+  const out = new Uint8Array(16);
+  for (let c = 0; c < 4; c++) {
+    const a0 = s[4*c], a1 = s[4*c+1], a2 = s[4*c+2], a3 = s[4*c+3];
+    out[4*c]   = gmul(a0,2) ^ gmul(a1,3) ^ a2 ^ a3;
+    out[4*c+1] = a0 ^ gmul(a1,2) ^ gmul(a2,3) ^ a3;
+    out[4*c+2] = a0 ^ a1 ^ gmul(a2,2) ^ gmul(a3,3);
+    out[4*c+3] = gmul(a0,3) ^ a1 ^ a2 ^ gmul(a3,2);
+  }
+  return out;
+}
+function invMixColumns(s) {
+  const out = new Uint8Array(16);
+  for (let c = 0; c < 4; c++) {
+    const a0 = s[4*c], a1 = s[4*c+1], a2 = s[4*c+2], a3 = s[4*c+3];
+    out[4*c]   = gmul(a0,14) ^ gmul(a1,11) ^ gmul(a2,13) ^ gmul(a3,9);
+    out[4*c+1] = gmul(a0,9) ^ gmul(a1,14) ^ gmul(a2,11) ^ gmul(a3,13);
+    out[4*c+2] = gmul(a0,13) ^ gmul(a1,9) ^ gmul(a2,14) ^ gmul(a3,11);
+    out[4*c+3] = gmul(a0,11) ^ gmul(a1,13) ^ gmul(a2,9) ^ gmul(a3,14);
+  }
+  return out;
+}
+function aesEncryptBlock(block, key) {
+  const rks = keyExpansion(key);
+  let s = addRoundKey(block, rks[0]);
+  for (let round = 1; round < 10; round++) {
+    s = subBytes(s, SBOX); s = shiftRows(s); s = mixColumns(s); s = addRoundKey(s, rks[round]);
+  }
+  s = subBytes(s, SBOX); s = shiftRows(s); s = addRoundKey(s, rks[10]);
+  return s;
+}
+function aesDecryptBlock(block, key) {
+  const rks = keyExpansion(key);
+  let s = addRoundKey(block, rks[10]);
+  for (let round = 9; round >= 1; round--) {
+    s = invShiftRows(s); s = subBytes(s, INV_SBOX); s = addRoundKey(s, rks[round]); s = invMixColumns(s);
+  }
+  s = invShiftRows(s); s = subBytes(s, INV_SBOX); s = addRoundKey(s, rks[0]);
+  return s;
+}
+function selftestAes() {
+  const key = hexToBytes("000102030405060708090a0b0c0d0e0f");
+  const pt  = hexToBytes("00112233445566778899aabbccddeeff");
+  const ct  = hexToBytes("69c4e0d86a7b0430d8cdb78070b4c55a");
+  const enc = aesEncryptBlock(pt, key);
+  const dec = aesDecryptBlock(ct, key);
+  return bytesToHex(enc) === bytesToHex(ct) && bytesToHex(dec) === bytesToHex(pt);
+}
+
+// ────────────────────────────── CRC16/XMODEM ───────────────────────────────
+function crc16Xmodem(data) {
+  let crc = 0;
+  for (const b of data) {
+    crc ^= (b << 8);
+    for (let i = 0; i < 8; i++)
+      crc = (crc & 0x8000) ? ((crc << 1) ^ 0x1021) & 0xFFFF : (crc << 1) & 0xFFFF;
+  }
+  return crc;
+}
+
+// ────────────────────────────── Frame helpers ──────────────────────────────
+function buildBlePacket(cmd, payload) {
+  const pkt = new Uint8Array(5 + payload.length + 3);
+  pkt[0] = 0x55; pkt[1] = 0xAA; pkt[2] = 0x00; pkt[3] = cmd; pkt[4] = payload.length;
+  pkt.set(payload, 5);
+  let sum = 0;
+  for (let i = 0; i < 5 + payload.length; i++) sum += pkt[i];
+  pkt[5 + payload.length] = sum & 0xFF;
+  pkt[5 + payload.length + 1] = 0xFE;
+  pkt[5 + payload.length + 2] = 0xFD;
+  return pkt;
+}
+function parseFrame(raw) {
+  if (raw.length >= 4 && raw[0] === 0x55 && raw[1] === 0xAA) {
+    const cmd = raw[3];
+    let length, payload;
+    if (raw.length === 7) { length = 0; payload = new Uint8Array(0); }
+    else if (raw.length >= 8 && 5 + raw[4] + 3 === raw.length) { length = raw[4]; payload = raw.slice(5, 5 + length); }
+    else { length = raw.length > 5 ? raw[4] : 0; payload = raw.length > 5 ? raw.slice(5, 5 + length) : new Uint8Array(0); }
+    return { type: "navee", cmd, length, payload, raw };
+  }
+  return { type: "other", raw };
+}
+if (typeof module !== "undefined") {
+  module.exports = { hexToBytes, bytesToHex, aesEncryptBlock, aesDecryptBlock, selftestAes, crc16Xmodem, buildBlePacket, parseFrame, AES_KEYS };
+}
+
+// ───────────────────────────────── UI/log ──────────────────────────────────
+const logEl = document.getElementById("log");
+function log(msg) {
+  logEl.textContent += msg + "\n";
+  logEl.scrollTop = logEl.scrollHeight;
+  console.log(msg);
+}
+
+// ─────────────────────────── BLE central (Web BT) ──────────────────────────
+let device = null, server = null, charWrite = null, charNotify = null;
+const notifyQueue = [];
+let notifyResolve = null;
+
+function onNotify(event) {
+  const value = new Uint8Array(event.target.value.buffer);
+  notifyQueue.push(value);
+  log("[<] notify " + bytesToHex(value));
+  if (notifyResolve) { const r = notifyResolve; notifyResolve = null; r(); }
+}
+function waitForNotify(timeoutMs = 5000) {
+  return new Promise(resolve => {
+    if (notifyQueue.length > 0) { resolve(notifyQueue.shift()); return; }
+    const timer = setTimeout(() => { notifyResolve = null; resolve(null); }, timeoutMs);
+    notifyResolve = () => { clearTimeout(timer); resolve(notifyQueue.shift()); };
+  });
+}
+async function connect() {
+  if (!navigator.bluetooth) throw new Error("navigator.bluetooth unavailable — needs Bluefy (iOS) or a Chromium browser, over HTTPS.");
+  const nameHint = document.getElementById("nameHint").value.trim();
+  const options = { optionalServices: [SERVICE_UUID] };
+  if (nameHint) options.filters = [{ namePrefix: nameHint }];
+  else options.acceptAllDevices = true;
+  device = await navigator.bluetooth.requestDevice(options);
+  log("[*] selected device: " + device.name);
+  device.addEventListener("gattserverdisconnected", () => log("[-] disconnected"));
+  server = await device.gatt.connect();
+  log("[+] GATT connected");
+  const service = await server.getPrimaryService(SERVICE_UUID);
+  const chars = await service.getCharacteristics();
+  charWrite = null; charNotify = null;
+  for (const c of chars) {
+    const p = c.properties;
+    const flags = [];
+    if (p.write) flags.push("WRITE");
+    if (p.writeWithoutResponse) flags.push("WRITE_NR");
+    if (p.notify) flags.push("NOTIFY");
+    if (p.indicate) flags.push("INDICATE");
+    log("    char " + c.uuid + " [" + flags.join(",") + "]");
+    if ((p.write || p.writeWithoutResponse) && !charWrite) {
+      charWrite = c; log("    -> using as WRITE characteristic");
+    }
+    if ((p.notify || p.indicate) && !charNotify) {
+      charNotify = c;
+      await c.startNotifications();
+      c.addEventListener("characteristicvaluechanged", onNotify);
+      log("    -> using as NOTIFY characteristic (subscribed)");
+    }
+  }
+  if (!charWrite || !charNotify) throw new Error("Missing write/notify characteristic on this service.");
+}
+async function send(data, withResponse = true) {
+  log("[>] " + bytesToHex(data));
+  if (!withResponse && charWrite.properties.writeWithoutResponse) {
+    await charWrite.writeValueWithoutResponse(data);
+  } else if (charWrite.properties.write && charWrite.writeValueWithResponse) {
+    await charWrite.writeValueWithResponse(data);
+  } else {
+    await charWrite.writeValue(data);
+  }
+}
+
+// ─────────────────────────────── Protocol flow ─────────────────────────────
+async function doAuth(keyIndex) {
+  const reqPayload = new Uint8Array([keyIndex, 0x00, 0x88, 0, 0, 0, 0, 0, 0]);
+  notifyQueue.length = 0;
+  await send(buildBlePacket(0x30, reqPayload), true);
+  const resp = await waitForNotify(5000);
+  if (!resp) { log("[-] no 0x30 response"); return false; }
+  const frame = parseFrame(resp);
+  if (frame.type !== "navee" || frame.cmd !== 0x30) { log("[-] unexpected 0x30 reply"); return false; }
+  const payload = frame.payload;
+  // Leading-zero prefix length varies by model — ST3's BLE chip sends
+  // [0x00,0x00]+16-byte random (18 bytes total), UT5 Max's meter/BLE chip
+  // sends just [0x00]+16 bytes (17 total). Both qualify for the app's XOR
+  // path (len>16 and payload[0]===0); take the last 16 bytes as the actual
+  // challenge regardless of how many zero bytes precede it.
+  if (payload.length < 17 || payload[0] !== 0) { log("[-] unexpected 0x30 payload shape: " + bytesToHex(payload)); return false; }
+  const challenge = payload.slice(payload.length - 16);
+  log("[<] challenge " + bytesToHex(challenge));
+  const key = AES_KEYS[keyIndex];
+  const response = challenge.map((b, i) => b ^ key[i]);
+  notifyQueue.length = 0;
+  await send(buildBlePacket(0x31, response), true);
+  const resp2 = await waitForNotify(5000);
+  if (!resp2) { log("[-] no 0x31 ack"); return false; }
+  const frame2 = parseFrame(resp2);
+  const ok = frame2.type === "navee" && frame2.cmd === 0x31;
+  log("[<] 0x31 ack " + bytesToHex(resp2) + " -> " + (ok ? "AUTH OK" : "unexpected"));
+  return ok;
+}
+async function query(cmd, payload = new Uint8Array(0)) {
+  notifyQueue.length = 0;
+  await send(buildBlePacket(cmd, payload), true);
+  const resp = await waitForNotify(5000);
+  if (!resp) { log("[-] cmd 0x" + cmd.toString(16) + ": no response"); return null; }
+  log("[<] cmd 0x" + cmd.toString(16) + " resp " + bytesToHex(resp));
+  return parseFrame(resp);
+}
+async function doReconReads() {
+  const statusResp = await query(0x70);
+  if (statusResp && statusResp.type === "navee" && statusResp.payload.length > 0) {
+    applyStatus(statusResp.payload);
+    enableSettingBtns();
+  }
+  await query(0x73); // firmware
+  await query(0x74); // serial
+  await query(0x72); // battery
+}
+
+async function dfuSendText(text, expectPrefix, timeoutMs = 5000, retries = 3) {
+  const expectBytes = strToBytes(expectPrefix);
+  for (let attempt = 0; attempt < retries; attempt++) {
+    notifyQueue.length = 0;
+    await send(strToBytes(text), true);
+    const resp = await waitForNotify(timeoutMs);
+    if (resp && bytesStartWith(resp, expectBytes)) return resp;
+    log("[-] retry " + (attempt + 1) + " for " + JSON.stringify(text) + " got " + (resp ? bytesToHex(resp) : null));
+  }
+  return null;
+}
+
+// Shared DFU handshake: dfu_start -> ble_rand -> ble_key -> wait for the
+// 0x43 XMODEM-ready byte. Used by both the dry-run stage (stops here) and
+// the real flash (continues on into sending blocks).
+async function doDfuHandshake(targetMcu, keyIndex) {
+  const ack = await dfuSendText("down dfu_start " + targetMcu + "\r", "ok");
+  if (!ack) { log("[-] dfu_start failed"); return false; }
+  log("[<] " + bytesToHex(ack));
+
+  const key = AES_KEYS[keyIndex];
+  const resp = await dfuSendText("down ble_rand\r", "ok ");
+  if (!resp) { log("[-] ble_rand failed"); return false; }
+  const cipher = resp.slice(3, 19);
+  if (cipher.length !== 16) { log("[-] unexpected ble_rand cipher length"); return false; }
+  // Scooter signs its random with AES DECRYPT-mode; we invert with ENCRYPT-mode.
+  const plainRandom = aesEncryptBlock(cipher, key);
+  log("[<] cipher=" + bytesToHex(cipher) + " -> plaintext random=" + bytesToHex(plainRandom));
+
+  notifyQueue.length = 0;
+  const keyMsg = concatBytes(strToBytes("down ble_key "), plainRandom, new Uint8Array([0x0d]));
+  await send(keyMsg, true);
+  const resp2 = await waitForNotify(5000);
+  if (!resp2 || !bytesStartWith(resp2, strToBytes("ok"))) { log("[-] ble_key rejected: " + (resp2 ? bytesToHex(resp2) : null)); return false; }
+  log("[<] " + bytesToHex(resp2));
+
+  const ready = await waitForNotify(5000);
+  if (!ready || ready.length !== 1 || ready[0] !== 0x43) { log("[-] expected XMODEM-ready 0x43, got " + (ready ? bytesToHex(ready) : null)); return false; }
+  log("[<] XMODEM-ready (0x43)");
+  return true;
+}
+
+// dfu-dryrun stage: runs the full handshake above and stops — no XMODEM
+// blocks, no EOT, nothing written to flash. Safe to run against any model
+// to confirm dfu_start/ble_rand/ble_key behave as expected before trusting
+// a real flash there.
+async function doDfuDryRun(targetMcu, keyIndex) {
+  log("[*] DFU DRY RUN (target=" + targetMcu + " " + (DFU_MCU_NAMES[targetMcu] || "?") + ") — handshake only, nothing will be written.");
+  const ok = await doDfuHandshake(targetMcu, keyIndex);
+  if (ok) log("[+] DRY RUN OK — handshake completed and the scooter signaled XMODEM-ready. Stopping here; no data was written.");
+  else log("[-] DRY RUN FAILED at the step logged above.");
+  return ok;
+}
+
+async function doDfuFlashInner(targetMcu, fwBytes, keyIndex) {
+  if (fwBytes.length <= 15) { log("[-] SAFETY ABORT: firmware file too small."); return false; }
+  const hdrType = fwBytes[6];
+  if (hdrType !== targetMcu) {
+    log("[-] SAFETY ABORT: firmware header type=" + hdrType + " (" + (DFU_MCU_NAMES[hdrType] || "?") +
+        ") but DFU target=" + targetMcu + ". Refusing mismatched image."); return false;
+  }
+  const modelStr = new TextDecoder().decode(fwBytes.slice(0, 6));
+  const versionStr = new TextDecoder().decode(fwBytes.slice(7, 15));
+  log("[*] header OK: model=" + modelStr + " type=" + hdrType + " (" + DFU_MCU_NAMES[hdrType] + ") version=" + versionStr);
+
+  const handshakeOk = await doDfuHandshake(targetMcu, keyIndex);
+  if (!handshakeOk) return false;
+
+  let seq = 1;
+  const totalBlocks = Math.ceil(fwBytes.length / 128);
+  for (let i = 0; i < totalBlocks; i++) {
+    let chunk = fwBytes.slice(i * 128, (i + 1) * 128);
+    if (chunk.length < 128) { const padded = new Uint8Array(128).fill(0x1A); padded.set(chunk, 0); chunk = padded; }
+    const crc = crc16Xmodem(chunk);
+    const block = concatBytes(new Uint8Array([0x01, seq & 0xFF, (255 - seq) & 0xFF]), chunk, new Uint8Array([(crc >> 8) & 0xFF, crc & 0xFF]));
+    let ok = false;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      notifyQueue.length = 0;
+      await send(block, false);
+      const ackB = await waitForNotify(3000);
+      if (ackB && ackB.length === 1 && ackB[0] === 0x06) { ok = true; break; }
+      log("[-] block " + seq + " attempt " + (attempt + 1) + ": ack=" + (ackB ? bytesToHex(ackB) : null) + ", retrying");
+    }
+    if (!ok) { log("[-] block " + seq + " failed after retries, aborting"); return false; }
+    if (seq % 20 === 0 || i === totalBlocks - 1) log("[.] sent block " + seq + "/" + totalBlocks);
+    seq = (seq + 1) & 0xFF;
+  }
+  for (let attempt = 0; attempt < 5; attempt++) {
+    notifyQueue.length = 0;
+    await send(new Uint8Array([0x04]), false);
+    const ackB = await waitForNotify(3000);
+    if (ackB && ackB[0] === 0x06) break;
+  }
+  const final = await waitForNotify(5000);
+  log("[<] final: " + (final ? bytesToHex(final) : null));
+  if (final && bytesStartWith(final, strToBytes("rsq dfu_ok"))) { log("[+] DFU COMPLETE — scooter reports dfu_ok"); return true; }
+  log("[-] DFU did not confirm success — do NOT power-cycle the scooter until you're sure of its state.");
+  return false;
+}
+
+async function doDfuFlash(targetMcu, fwBytes, keyIndex) {
+  try {
+    return await doDfuFlashInner(targetMcu, fwBytes, keyIndex);
+  } catch (e) {
+    log("[!!!] EXCEPTION during flash: " + e);
+    log("[!!!] The transfer was interrupted mid-flight (likely a dropped BLE connection or GATT error) — " +
+        "the target MCU may be left in a PARTIALLY-WRITTEN state. Do NOT power-cycle the scooter. " +
+        "Try reconnecting and re-running 'auth' stage to check whether it still responds before deciding anything else.");
+    return false;
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+// ──────────────── SETTINGS HELPERS ────────────────────────
+// ══════════════════════════════════════════════════════════
+
+/** Mark one button active; clear active from all others in the group. */
+function markActive(activeId, ...groupIds) {
+  for (const id of groupIds) {
+    const el = document.getElementById(id);
+    if (el) el.classList.remove('active');
+  }
+  if (activeId) {
+    const el = document.getElementById(activeId);
+    if (el) el.classList.add('active');
+  }
+}
+
+/** Enable all setting controls after successful auth. */
+function enableSettingBtns() {
+  document.querySelectorAll('.sb').forEach(b => b.disabled = false);
+  document.getElementById('maxSpeedVal').disabled = false;
+  document.getElementById('speedLimitVal').disabled = false;
+  log("[+] Settings panel unlocked — current state populated from 0x70 status.");
+}
+
+/**
+ * Parse 0x70 status payload and update the settings UI.
+ * Byte offsets per NaveeProtocol.kt parseStatus():
+ *   [0] = version/type, [2]=speedMode, [3]=locked, [4]=cruise,
+ *   [5]=taillight, [6]=ers, [9]=autoHeadlight, [12]=tcs,
+ *   [13]=turnSound, [26]=maxSpeed
+ */
+function applyStatus(payload) {
+  if (!payload || payload.length < 14) {
+    log("[-] status payload too short to parse settings (" + (payload ? payload.length : 0) + " bytes)");
+    return;
+  }
+  const speedMode     = payload[2];
+  const locked        = payload[3] !== 0;
+  const cruiseOn      = payload[4] !== 0;
+  const taillightOn   = payload[5] !== 0;
+  const ersLevel      = payload[6];
+  const autoHeadlight = payload.length > 9  ? payload[9]  !== 0 : false;
+  const tcsOn         = payload.length > 12 ? payload[12] !== 0 : false;
+  const turnSound     = payload.length > 13 ? payload[13] !== 0 : false;
+  const maxSpeed      = payload.length > 26 ? payload[26] : 0;
+
+  // Speed mode
+  markActive(speedMode === 0x05 ? 'btn-sport' : 'btn-eco', 'btn-eco', 'btn-sport');
+  // Lock
+  markActive(locked ? 'btn-lock' : 'btn-unlock', 'btn-lock', 'btn-unlock');
+  // Cruise
+  markActive(cruiseOn ? 'btn-cruise-on' : 'btn-cruise-off', 'btn-cruise-on', 'btn-cruise-off');
+  // Taillight
+  markActive(taillightOn ? 'btn-tail-on' : 'btn-tail-off', 'btn-tail-on', 'btn-tail-off');
+  // Auto headlight
+  markActive(autoHeadlight ? 'btn-headlight-on' : 'btn-headlight-off', 'btn-headlight-on', 'btn-headlight-off');
+  // Turn sound
+  markActive(turnSound ? 'btn-turnsound-on' : 'btn-turnsound-off', 'btn-turnsound-on', 'btn-turnsound-off');
+  // TCS
+  markActive(tcsOn ? 'btn-tcs-on' : 'btn-tcs-off', 'btn-tcs-on', 'btn-tcs-off');
+  // ERS level
+  const ersIds = ['btn-ers-0','btn-ers-1','btn-ers-2','btn-ers-3'];
+  if (ersLevel >= 0 && ersLevel <= 3) markActive(ersIds[ersLevel], ...ersIds);
+  // Max speed
+  if (maxSpeed > 0) document.getElementById('maxSpeedVal').value = maxSpeed;
+
+  log("[*] status → speedMode=" + (speedMode === 0x05 ? "SPORT" : "ECO") +
+      " | locked=" + locked + " | cruise=" + cruiseOn +
+      " | taillight=" + taillightOn + " | ers=" + ersLevel +
+      " | autoHeadlight=" + autoHeadlight + " | tcs=" + tcsOn +
+      " | turnSound=" + turnSound + " | maxSpeed=" + (maxSpeed || "?"));
+}
+
+/** Generic write helper — sends a command and waits for ACK. */
+async function sendSetting(label, cmd, payload) {
+  if (!charWrite) { log("[-] not connected — connect first"); return; }
+  const pkt = buildBlePacket(cmd, payload);
+  notifyQueue.length = 0;
+  await send(pkt, true);
+  const resp = await waitForNotify(3000);
+  if (resp) log("[+] " + label + " → ack: " + bytesToHex(resp));
+  else log("[-] " + label + ": no ACK received");
+  return resp;
+}
+
+// ══════════════════════════════════════════════════════════
+// ──────────────── SETTINGS SENDERS ────────────────────────
+// ══════════════════════════════════════════════════════════
+
+// 0x58 — Speed mode (ECO=0x03, SPORT=0x05)
+async function sendSpeedMode(mode) {
+  await sendSetting("speed_mode(0x" + mode.toString(16) + ")", 0x58, new Uint8Array([mode]));
+  markActive(mode === 0x05 ? 'btn-sport' : 'btn-eco', 'btn-eco', 'btn-sport');
+}
+
+// 0x51 — Lock/unlock
+async function sendLock(locked) {
+  await sendSetting("lock=" + locked, 0x51, new Uint8Array([locked ? 0x01 : 0x00]));
+  markActive(locked ? 'btn-lock' : 'btn-unlock', 'btn-lock', 'btn-unlock');
+}
+
+// 0x52 — Cruise control
+async function sendCruise(on) {
+  await sendSetting("cruise=" + on, 0x52, new Uint8Array([on ? 0x01 : 0x00]));
+  markActive(on ? 'btn-cruise-on' : 'btn-cruise-off', 'btn-cruise-on', 'btn-cruise-off');
+}
+
+// 0x54 — Taillight
+async function sendTaillight(on) {
+  await sendSetting("taillight=" + on, 0x54, new Uint8Array([on ? 0x01 : 0x00]));
+  markActive(on ? 'btn-tail-on' : 'btn-tail-off', 'btn-tail-on', 'btn-tail-off');
+}
+
+// 0x57 — Auto headlight sensor
+async function sendAutoHeadlight(on) {
+  await sendSetting("auto_headlight=" + on, 0x57, new Uint8Array([on ? 0x01 : 0x00]));
+  markActive(on ? 'btn-headlight-on' : 'btn-headlight-off', 'btn-headlight-on', 'btn-headlight-off');
+}
+
+// 0x59 — Traction control (TCS)
+async function sendTCS(on) {
+  await sendSetting("tcs=" + on, 0x59, new Uint8Array([on ? 0x01 : 0x00]));
+  markActive(on ? 'btn-tcs-on' : 'btn-tcs-off', 'btn-tcs-on', 'btn-tcs-off');
+}
+
+// 0x60 — Turn signal sound
+async function sendTurnSound(on) {
+  await sendSetting("turn_sound=" + on, 0x60, new Uint8Array([on ? 0x01 : 0x00]));
+  markActive(on ? 'btn-turnsound-on' : 'btn-turnsound-off', 'btn-turnsound-on', 'btn-turnsound-off');
+}
+
+// 0x53 — ERS (regenerative braking) level 0-3
+async function sendERS(level) {
+  await sendSetting("ers=" + level, 0x53, new Uint8Array([level]));
+  const ids = ['btn-ers-0','btn-ers-1','btn-ers-2','btn-ers-3'];
+  markActive(ids[level], ...ids);
+}
+
+// 0x6A — Startup speed level (0=walk, 1=slow, 2=normal, 3=fast)
+async function sendStartupSpeed(level) {
+  await sendSetting("startup_speed=" + level, 0x6A, new Uint8Array([level]));
+  markActive('btn-ss-' + level, 'btn-ss-0', 'btn-ss-1', 'btn-ss-2', 'btn-ss-3');
+}
+
+// 0x6E — Max speed in km/h  [payload: 0x01, kmh]
+async function sendMaxSpeed() {
+  const kmh = parseInt(document.getElementById('maxSpeedVal').value, 10);
+  if (isNaN(kmh) || kmh < 1 || kmh > 35) { log("[-] invalid max speed value"); return; }
+  await sendSetting("max_speed=" + kmh + "km/h", 0x6E, new Uint8Array([0x01, kmh]));
+}
+
+// 0x6B — Custom speed limit  [payload: 0x80|kmh if enabled, 0x00 if disabled]
+async function sendSpeedLimit(enabled) {
+  const kmh = parseInt(document.getElementById('speedLimitVal').value, 10);
+  const value = enabled ? (0x80 | (kmh & 0x7F)) : 0x00;
+  await sendSetting("speed_limit=" + (enabled ? kmh + "km/h" : "off"), 0x6B, new Uint8Array([value]));
+  markActive(enabled ? 'btn-limit-on' : 'btn-limit-off', 'btn-limit-on', 'btn-limit-off');
+}
+
+// ══════════════════════════════════════════════════════════
+// ──────────────── STANDALONE READ BUTTONS ─────────────────
+// ══════════════════════════════════════════════════════════
+
+async function doRefreshStatus() {
+  if (!charWrite) { log("[-] not connected"); return; }
+  const resp = await query(0x70);
+  if (resp && resp.type === "navee" && resp.payload.length > 0) applyStatus(resp.payload);
+}
+async function doReadBattery()  { if (charWrite) await query(0x72); else log("[-] not connected"); }
+async function doReadFirmware() { if (charWrite) await query(0x73); else log("[-] not connected"); }
+async function doReadSerial()   { if (charWrite) await query(0x74); else log("[-] not connected"); }
+async function doReadHistory()  { if (charWrite) await query(0x76); else log("[-] not connected"); }
+
+// ────────────────────────────────── Wiring ─────────────────────────────────
+document.getElementById("connectBtn").addEventListener("click", async () => {
+  document.getElementById("connStatus").textContent = "connecting...";
+  try {
+    await connect();
+    document.getElementById("connStatus").textContent = "connected: " + device.name;
+    document.getElementById("runBtn").disabled = false;
+  } catch (e) {
+    log("[-] connect error: " + e);
+    document.getElementById("connStatus").textContent = "connect failed";
+  }
+});
+
+document.getElementById("runBtn").addEventListener("click", async () => {
+  const runBtn = document.getElementById("runBtn");
+  runBtn.disabled = true;
+  try {
+    const stage = document.getElementById("stage").value;
+    const keyIndex = parseInt(document.getElementById("keyIndex").value, 10);
+    const dfuTarget = parseInt(document.getElementById("dfuTarget").value, 10);
+
+    const ok = await doAuth(keyIndex);
+    if (!ok) { log("[-] stopping: auth failed"); return; }
+    log("[+] AUTH OK — running recon reads...");
+    await doReconReads();
+
+    if (stage === "dfu-dryrun") {
+      await doDfuDryRun(dfuTarget, keyIndex);
+    } else if (stage === "flash") {
+      const fileInput = document.getElementById("fwFile");
+      if (!fileInput.files.length) { log("[-] pick a firmware file first"); return; }
+      const file = fileInput.files[0];
+      const buf = await file.arrayBuffer();
+      const fwBytes = new Uint8Array(buf);
+      const proceed = confirm(
+        "About to WRITE to real flash.\n" +
+        "Target MCU=" + dfuTarget + " (" + DFU_MCU_NAMES[dfuTarget] + ")\n" +
+        "File=" + file.name + " (" + fwBytes.length + " bytes)\n\nProceed?"
+      );
+      if (!proceed) { log("Aborted."); return; }
+      await doDfuFlash(dfuTarget, fwBytes, keyIndex);
+    }
+  } catch (e) {
+    // Catches anything doAuth/doReconReads/doDfuDryRun throw outside the
+    // flash path itself (e.g. a BLE write failing because the connection
+    // dropped) so it never fails silently in the devtools console instead
+    // of on the page.
+    log("[!!!] Unexpected error: " + e);
+  } finally {
+    runBtn.disabled = false;
+  }
+});
+
+// Last-resort net: any promise rejection that still slips past the above
+// gets surfaced on the page instead of only in a console you're probably
+// not watching.
+window.addEventListener("unhandledrejection", (event) => {
+  log("[!!!] Unhandled error: " + event.reason);
+});
+
+window.addEventListener("load", () => {
+  log(selftestAes() ? "[selftest] AES-128 known-answer test: PASS" : "[selftest] AES-128 known-answer test: FAIL !!!");
+  if (!navigator.bluetooth) log("[-] navigator.bluetooth not found — open this page in Bluefy (iOS) or a Chromium browser, over HTTPS.");
+});
+</script>
+</body>
+</html>
