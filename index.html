@@ -95,6 +95,50 @@
   .dot { width: 8px; height: 8px; border-radius: 999px; background: var(--text-faint); flex-shrink: 0; }
   .dot-on { background: var(--success); box-shadow: 0 0 6px var(--success); }
   .dot-err { background: var(--danger); }
+  .dot-busy { background: var(--warn); box-shadow: 0 0 6px var(--warn); }
+
+  /* ── Persistent status hero ── */
+  .status-hero {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--bg-elev); border: 1px solid var(--border);
+    border-radius: var(--radius-lg); padding: 13px 16px; margin-bottom: 14px;
+    font-size: 14px; font-weight: 600;
+  }
+  .status-hero .dot { width: 10px; height: 10px; }
+
+  /* ── Action buttons ── */
+  .action-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+  .btn-secondary { background: var(--bg-elev-2); color: var(--text); border: 1px solid var(--border); }
+  .btn-secondary:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-hover); }
+  .btn-block { width: 100%; }
+
+  /* ── Collapsible cards (Settings / Log) ── */
+  details.card { padding: 0; }
+  details.card > summary {
+    display: flex; align-items: center; gap: 10px; cursor: pointer;
+    padding: 16px; font-size: 15px; font-weight: 600; list-style: none;
+    border-radius: var(--radius-lg);
+  }
+  details.card > summary::-webkit-details-marker { display: none; }
+  details.card > summary::after {
+    content: "▸"; margin-left: auto; color: var(--text-faint); font-size: 12px;
+    transition: transform 0.15s;
+  }
+  details.card[open] > summary::after { transform: rotate(90deg); }
+  details.card > summary:hover { background: var(--bg-elev-2); }
+  details.card > .card-body { padding: 0 16px 16px; }
+
+  /* ── Inline "Advanced" disclosure ── */
+  details.adv { margin-top: 12px; border-top: 1px solid var(--border-soft); padding-top: 2px; }
+  details.adv > summary {
+    cursor: pointer; font-size: 12.5px; color: var(--text-dim); list-style: none;
+    padding: 8px 0; display: flex; align-items: center; gap: 6px;
+  }
+  details.adv > summary::-webkit-details-marker { display: none; }
+  details.adv > summary::before { content: "▸"; font-size: 10px; transition: transform 0.15s; }
+  details.adv[open] > summary::before { transform: rotate(90deg); }
+  details.adv > summary:hover { color: var(--text); }
+  details.adv > .adv-body { padding-top: 6px; }
 
   /* ── Settings panel ── */
   .stitle {
@@ -129,8 +173,9 @@
 
   /* ── Log ── */
   .card-log { padding: 12px 12px 14px; }
-  .log-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  .log-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
   .log-toolbar h2 { font-size: 13px; margin: 0; color: var(--text-dim); font-weight: 600; }
+  .log-hint { margin: 0; flex: 1; }
   .log-actions { display: flex; gap: 6px; }
   #log {
     background: #000; font-family: var(--mono);
@@ -151,89 +196,99 @@
 <body>
 <header class="page-header">
   <h1>Navee BLE Flash / Recon</h1>
-  <p class="sub">Real Web Bluetooth central — run this in <b>Bluefy</b> on iOS (Safari/Chrome-iOS have no Web Bluetooth at all), or any Chromium browser elsewhere. Host over HTTPS (GitHub Pages works).</p>
+  <p class="sub">Run this in <b>Bluefy</b> on iOS (Safari/Chrome-iOS have no Web Bluetooth at all), or any Chromium browser elsewhere.</p>
 </header>
 
-<!-- ─── 1. Connect ─── -->
+<div class="status-hero">
+  <span class="dot" id="heroDot"></span>
+  <span id="heroText">Not connected</span>
+</div>
+
+<!-- ─── Connect ─── -->
 <section class="card">
   <div class="card-head"><span class="step">1</span><h2>Connect</h2></div>
-  <label class="field">
-    <span class="field-label">Device name prefix</span>
-    <input type="text" id="nameHint" placeholder="leave blank to list all nearby BLE devices">
-  </label>
-  <div class="row">
-    <button id="connectBtn" class="btn btn-primary" type="button">Connect</button>
-    <span class="status"><span class="dot" id="connDot"></span><span id="connStatusText">not connected</span></span>
-  </div>
+  <button id="connectBtn" class="btn btn-primary btn-block" type="button">Connect to Scooter</button>
+  <details class="adv">
+    <summary>Advanced</summary>
+    <div class="adv-body">
+      <label class="field">
+        <span class="field-label">Device name filter</span>
+        <input type="text" id="nameHint" placeholder="leave blank to list all nearby BLE devices">
+      </label>
+    </div>
+  </details>
 </section>
 
-<!-- ─── 2. Direct BLE Control ─── -->
+<!-- ─── Test & Flash ─── -->
 <section class="card">
-  <div class="card-head"><span class="step">2</span><h2>Direct BLE Control</h2></div>
-  <p class="hint">Talks to the scooter using our own reverse-engineered protocol — no cloud involved. Run <b>auth</b> first before anything else.</p>
-  <label class="field">
-    <span class="field-label">Stage</span>
-    <select id="stage">
-      <option value="auth">auth — read-only: challenge-response + status/serial/firmware reads</option>
-      <option value="dfu-dryrun">dfu-dryrun — handshake only, stops before any data is written</option>
-      <option value="flash">flash — WRITES firmware to real flash</option>
-    </select>
-  </label>
-  <div class="field-grid">
-    <label class="field">
-      <span class="field-label">Key index (0-4)</span>
-      <input type="number" id="keyIndex" value="1" min="0" max="4">
-    </label>
-    <label class="field">
-      <span class="field-label">DFU target sub-MCU</span>
-      <select id="dfuTarget">
-        <option value="1">1 = meter</option>
-        <option value="2" selected>2 = bldc</option>
-        <option value="3">3 = bms</option>
-        <option value="4">4 = screen</option>
-      </select>
-    </label>
+  <div class="card-head"><span class="step">2</span><h2>Test &amp; Flash</h2></div>
+  <p class="hint">Our own reverse-engineered protocol, direct over BLE — no cloud involved.</p>
+  <div class="action-grid">
+    <button id="testBtn" class="btn btn-secondary" type="button" disabled>Test Connection</button>
+    <button id="dryRunBtn" class="btn btn-secondary" type="button" disabled>Dry Run (safe)</button>
   </div>
   <label class="field">
-    <span class="field-label">Firmware .bin (flash stage only)</span>
+    <span class="field-label">Firmware .bin</span>
     <input type="file" id="fwFile">
   </label>
-  <button id="runBtn" class="btn btn-primary" type="button" disabled>Run</button>
+  <button id="flashBtn" class="btn btn-primary btn-block" type="button" disabled>Flash Firmware</button>
+  <details class="adv">
+    <summary>Advanced</summary>
+    <div class="adv-body field-grid">
+      <label class="field">
+        <span class="field-label">Key index (0-4)</span>
+        <input type="number" id="keyIndex" value="1" min="0" max="4">
+      </label>
+      <label class="field">
+        <span class="field-label">DFU target sub-MCU</span>
+        <select id="dfuTarget">
+          <option value="1">1 = meter</option>
+          <option value="2" selected>2 = bldc</option>
+          <option value="3">3 = bms</option>
+          <option value="4">4 = screen</option>
+        </select>
+      </label>
+    </div>
+  </details>
 </section>
 
-<!-- ─── 3. Cloud Relay Flash ─── -->
+<!-- ─── Cloud Relay Flash ─── -->
 <section class="card">
   <div class="card-head"><span class="step step-relay">☁</span><h2>Cloud Relay Flash</h2></div>
   <p class="hint">
-    Bridges the real 1dragon tuning WebSocket service to your connected scooter: the cloud drives the
-    actual auth/DFU protocol end to end, this page only relays raw bytes both directions over the
-    same BLE connection from step 1. No crypto/key guessing needed on our side — whatever the cloud
-    computes gets written straight to the real scooter, and every real BLE reply gets relayed back up.
+    Bridges the real 1dragon tuning service to your scooter — it drives the actual flash end to end,
+    this page only relays bytes over the same BLE connection from step 1.
   </p>
-  <label class="field">
-    <span class="field-label">License key</span>
-    <input type="text" id="relayLicense" value="GUB3N-NFABK-C9M2E-WC4BH-BBEDX">
-  </label>
-  <div class="field-grid">
-    <label class="field">
-      <span class="field-label">PID</span>
-      <input type="text" id="relayPid" value="25382" placeholder="e.g. 25382 = UT5 Max">
-    </label>
-    <label class="field">
-      <span class="field-label">Variant</span>
-      <select id="relayVariant">
-        <option value="modded" selected>modded</option>
-        <option value="stock">stock</option>
-      </select>
-    </label>
-  </div>
-  <button id="relayBtn" class="btn btn-accent2" type="button" disabled>Start Cloud Relay Flash</button>
+  <button id="relayBtn" class="btn btn-accent2 btn-block" type="button" disabled>Start Cloud Relay Flash</button>
+  <details class="adv">
+    <summary>Advanced</summary>
+    <div class="adv-body">
+      <label class="field">
+        <span class="field-label">License key</span>
+        <input type="text" id="relayLicense" value="GUB3N-NFABK-C9M2E-WC4BH-BBEDX">
+      </label>
+      <div class="field-grid">
+        <label class="field">
+          <span class="field-label">PID</span>
+          <input type="text" id="relayPid" value="25382" placeholder="e.g. 25382 = UT5 Max">
+        </label>
+        <label class="field">
+          <span class="field-label">Variant</span>
+          <select id="relayVariant">
+            <option value="modded" selected>modded</option>
+            <option value="stock">stock</option>
+          </select>
+        </label>
+      </div>
+    </div>
+  </details>
 </section>
 
-<!-- ─── 4. Settings ─── -->
-<section class="card" id="settingsPanel">
-  <div class="card-head"><span class="step">4</span><h2>Settings</h2></div>
-  <p class="snote">Run Auth above first — current values populate automatically. Buttons unlock after successful auth.</p>
+<!-- ─── Settings ─── -->
+<details class="card" id="settingsPanel">
+  <summary><span class="step">3</span><h2>Scooter Settings</h2></summary>
+  <div class="card-body">
+  <p class="snote">Run "Test Connection" above first — current values populate automatically. Buttons unlock after successful auth.</p>
 
   <div class="stitle">Read</div>
   <div class="srow">
@@ -379,19 +434,23 @@
       <button class="sb" id="btn-region" type="button" disabled onclick="sendRegion()">Set</button>
     </div>
   </div>
-</section>
+  </div>
+</details>
 
 <!-- ─── Log ─── -->
-<section class="card card-log">
-  <div class="log-toolbar">
-    <h2>Log</h2>
-    <div class="log-actions">
-      <button class="btn-ghost" id="clearLogBtn" type="button">Clear</button>
-      <button class="btn-ghost" id="copyLogBtn" type="button">Copy</button>
+<details class="card card-log">
+  <summary><h2>Technical Log</h2></summary>
+  <div class="card-body">
+    <div class="log-toolbar">
+      <span class="hint log-hint">Raw protocol traffic — useful for troubleshooting, not needed for normal use.</span>
+      <div class="log-actions">
+        <button class="btn-ghost" id="clearLogBtn" type="button">Clear</button>
+        <button class="btn-ghost" id="copyLogBtn" type="button">Copy</button>
+      </div>
     </div>
+    <div id="log"></div>
   </div>
-  <div id="log"></div>
-</section>
+</details>
 
 <script>
 'use strict';
@@ -946,7 +1005,7 @@ function relayDecrypt(b64) {
 let relayWs = null;
 
 async function doCloudRelayFlash(pid, variant, license) {
-  if (!charWrite || !charNotify) { log("[-] connect to the scooter first (step 1)"); return; }
+  if (!charWrite || !charNotify) { log("[-] connect to the scooter first (step 1)"); return false; }
 
   let dfuStarted = false;
   try {
@@ -1000,7 +1059,7 @@ async function doCloudRelayFlash(pid, variant, license) {
 
     while (true) {
       const msg = await waitForRelayMsg(30000);
-      if (!msg) { log("[-] relay stream timeout"); break; }
+      if (!msg) { log("[-] relay stream timeout"); return false; }
       const mtype = msg.type;
 
       if (mtype === "ble_write") {
@@ -1015,7 +1074,7 @@ async function doCloudRelayFlash(pid, variant, license) {
             log("[!!!] This happened after dfu_flash was requested — the target MCU may be left " +
                 "in a PARTIALLY-WRITTEN state. Do NOT power-cycle the scooter.");
           }
-          break;
+          return false;
         }
       } else if (mtype === "auth_ok") {
         log("[+] relay reports auth_ok");
@@ -1028,25 +1087,26 @@ async function doCloudRelayFlash(pid, variant, license) {
             "The cloud drives the entire DFU/XMODEM exchange; this page only relays bytes " +
             "between it and the real BLE connection. Proceed?"
           );
-          if (!proceed) { log("[-] Aborted before dfu_flash."); break; }
+          if (!proceed) { log("[-] Aborted before dfu_flash."); return false; }
           dfuStarted = true;
           sendToRelay({ type: "dfu_flash", pid: pid, variant: variant });
         }
       } else if (mtype === "dfu_complete") {
         log("[+] dfu_complete — cloud relay reports the flash finished!");
-        break;
+        return true;
       } else if (mtype === "dfu_error" || mtype === "error") {
         log("[-] relay error: " + JSON.stringify(msg));
-        break;
+        return false;
       } else if (mtype === "auth_fail" || mtype === "unsupported_pid") {
         log("[-] " + mtype + ": " + JSON.stringify(msg));
-        break;
+        return false;
       } else {
         log("[.] " + mtype + ": " + JSON.stringify(msg).slice(0, 160));
       }
     }
   } catch (e) {
     log("[!!!] Cloud relay error: " + e);
+    return false;
   } finally {
     relayNotifyHandler = null;
     if (relayWs) { try { relayWs.close(); } catch (_) {} }
@@ -1209,42 +1269,54 @@ async function doReadSerial()   { if (charWrite) await query(0x74); else log("[-
 async function doReadHistory()  { if (charWrite) await query(0x76); else log("[-] not connected"); }
 
 // ────────────────────────────────── Wiring ─────────────────────────────────
+
+// One persistent, always-visible status indicator instead of scattered
+// per-card status text — the thing to glance at without opening the log.
+function setStatus(text, kind) {
+  const dot = document.getElementById("heroDot");
+  document.getElementById("heroText").textContent = text;
+  dot.className = "dot" + (kind === "ok" ? " dot-on" : kind === "err" ? " dot-err" : kind === "busy" ? " dot-busy" : "");
+}
+
+const actionButtons = ["testBtn", "dryRunBtn", "flashBtn", "relayBtn"].map(id => document.getElementById(id));
+
 document.getElementById("connectBtn").addEventListener("click", async () => {
-  const dot = document.getElementById("connDot");
-  const statusText = document.getElementById("connStatusText");
-  statusText.textContent = "connecting...";
-  dot.className = "dot";
+  setStatus("Connecting...", "busy");
   try {
     await connect();
-    statusText.textContent = "connected: " + device.name;
-    dot.className = "dot dot-on";
-    document.getElementById("runBtn").disabled = false;
-    document.getElementById("relayBtn").disabled = false;
+    setStatus("Connected: " + device.name, "ok");
+    actionButtons.forEach(b => b.disabled = false);
   } catch (e) {
     log("[-] connect error: " + e);
-    statusText.textContent = "connect failed";
-    dot.className = "dot dot-err";
+    setStatus("Connect failed", "err");
   }
 });
 
-document.getElementById("runBtn").addEventListener("click", async () => {
-  const runBtn = document.getElementById("runBtn");
-  runBtn.disabled = true;
+// Shared by all three Test & Flash actions — same underlying auth/recon
+// logic either way, just what happens after differs.
+async function runFlow(mode) {
+  actionButtons.forEach(b => b.disabled = true);
+  setStatus(mode === "auth" ? "Testing connection..." : mode === "dfu-dryrun" ? "Running dry run..." : "Flashing firmware...", "busy");
   try {
-    const stage = document.getElementById("stage").value;
     const keyIndex = parseInt(document.getElementById("keyIndex").value, 10);
     const dfuTarget = parseInt(document.getElementById("dfuTarget").value, 10);
 
     const ok = await doAuth(keyIndex);
-    if (!ok) { log("[-] stopping: auth failed"); return; }
-    log("[+] AUTH OK — running recon reads...");
+    if (!ok) { setStatus("Auth failed", "err"); return; }
     await doReconReads();
 
-    if (stage === "dfu-dryrun") {
-      await doDfuDryRun(dfuTarget, keyIndex);
-    } else if (stage === "flash") {
+    if (mode === "auth") {
+      setStatus("Connected & authenticated", "ok");
+      return;
+    }
+    if (mode === "dfu-dryrun") {
+      const result = await doDfuDryRun(dfuTarget, keyIndex);
+      setStatus(result ? "Dry run passed" : "Dry run failed", result ? "ok" : "err");
+      return;
+    }
+    if (mode === "flash") {
       const fileInput = document.getElementById("fwFile");
-      if (!fileInput.files.length) { log("[-] pick a firmware file first"); return; }
+      if (!fileInput.files.length) { setStatus("Pick a firmware file first", "err"); return; }
       const file = fileInput.files[0];
       const buf = await file.arrayBuffer();
       const fwBytes = new Uint8Array(buf);
@@ -1253,8 +1325,9 @@ document.getElementById("runBtn").addEventListener("click", async () => {
         "Target MCU=" + dfuTarget + " (" + DFU_MCU_NAMES[dfuTarget] + ")\n" +
         "File=" + file.name + " (" + fwBytes.length + " bytes)\n\nProceed?"
       );
-      if (!proceed) { log("Aborted."); return; }
-      await doDfuFlash(dfuTarget, fwBytes, keyIndex);
+      if (!proceed) { setStatus("Flash cancelled", "idle"); return; }
+      const result = await doDfuFlash(dfuTarget, fwBytes, keyIndex);
+      setStatus(result ? "Flash complete" : "Flash failed", result ? "ok" : "err");
     }
   } catch (e) {
     // Catches anything doAuth/doReconReads/doDfuDryRun throw outside the
@@ -1262,25 +1335,31 @@ document.getElementById("runBtn").addEventListener("click", async () => {
     // dropped) so it never fails silently in the devtools console instead
     // of on the page.
     log("[!!!] Unexpected error: " + e);
+    setStatus("Unexpected error", "err");
   } finally {
-    runBtn.disabled = false;
+    actionButtons.forEach(b => b.disabled = false);
   }
-});
+}
+document.getElementById("testBtn").addEventListener("click", () => runFlow("auth"));
+document.getElementById("dryRunBtn").addEventListener("click", () => runFlow("dfu-dryrun"));
+document.getElementById("flashBtn").addEventListener("click", () => runFlow("flash"));
 
 document.getElementById("relayBtn").addEventListener("click", async () => {
-  const relayBtn = document.getElementById("relayBtn");
-  relayBtn.disabled = true;
+  actionButtons.forEach(b => b.disabled = true);
+  setStatus("Starting cloud relay...", "busy");
   try {
     const license = document.getElementById("relayLicense").value.trim();
     const pid = document.getElementById("relayPid").value.trim();
     const variant = document.getElementById("relayVariant").value;
-    if (!license) { log("[-] license key required"); return; }
-    if (!pid) { log("[-] PID required"); return; }
-    await doCloudRelayFlash(pid, variant, license);
+    if (!license) { setStatus("License key required", "err"); return; }
+    if (!pid) { setStatus("PID required", "err"); return; }
+    const result = await doCloudRelayFlash(pid, variant, license);
+    setStatus(result ? "Cloud relay flash complete" : "Cloud relay flash ended (see log)", result ? "ok" : "idle");
   } catch (e) {
     log("[!!!] Unexpected error: " + e);
+    setStatus("Unexpected error", "err");
   } finally {
-    relayBtn.disabled = false;
+    actionButtons.forEach(b => b.disabled = false);
   }
 });
 
