@@ -1,0 +1,19 @@
+{
+  "name": "navee-ble-flash",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Real Web Bluetooth Navee BLE/DFU flashing tool -- build/deploy tooling only, the tool itself is the single-file index.html this builds from.",
+  "scripts": {
+    "build": "node build.js",
+    "verify": "node verify-build.js",
+    "deploy": "npm run build && npm run verify && wrangler pages deploy dist --project-name=navee-ble-flash"
+  },
+  "devDependencies": {
+    "javascript-obfuscator": "^4.1.1",
+    "wrangler": "^4.130.0"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true,
+    "workerd@1.20260908.1": true
+  }
+}
