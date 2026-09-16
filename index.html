@@ -977,7 +977,11 @@ async function doDfuFlashInner(targetMcu, fwBytes, keyIndex) {
     }
     if (!ok) { log("[-] block " + seq + " failed after retries, aborting"); return false; }
     if (seq % 20 === 0 || i === totalBlocks - 1) log("[.] sent block " + seq + "/" + totalBlocks);
+    // XMODEM block number wraps 255 -> 1 (NOT 255 -> 0). Confirmed against the
+    // real scooter (it NAKs seq 0) and the official DFUProcessor.java, which
+    // does: i4 = (n+1) % 256; if (i4 == 0) n = 1.
     seq = (seq + 1) & 0xFF;
+    if (seq === 0) seq = 1;
   }
   for (let attempt = 0; attempt < 5; attempt++) {
     notifyQueue.length = 0;
