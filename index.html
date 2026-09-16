@@ -715,6 +715,10 @@ let notifyResolve = null;
 // here instead of the normal queue/log path — see the Cloud Relay section.
 let relayNotifyHandler = null;
 
+// CFW telemetry-beacon detection. Stock 0x90/0x92 frames never contain these.
+const CFW_BEACON_SENTINEL = 0x4D;   // 77 = forced-speed value in the diagnostic build
+const CFW_BEACON_PERSIST  = 0xCF;   // persistent beacon byte (for the real CFW)
+let cfwBeaconSeen = false;
 function onNotify(event) {
   const value = new Uint8Array(event.target.value.buffer);
   if (relayNotifyHandler) { relayNotifyHandler(value); return; }
@@ -726,6 +730,21 @@ function onNotify(event) {
   const frame = parseFrame(value);
   if (frame.type === "navee" && (frame.cmd === 0x90 || frame.cmd === 0x92)) {
     log("[.] telemetry (unsolicited) " + bytesToHex(value));
+    // CFW beacon: our diagnostic/CFW forces a sentinel value into a telemetry
+    // field that stock firmware never emits. If it shows up here, the running
+    // image is definitely ours. 0x4D (77) = the forced-speed diagnostic
+    // sentinel; 0xCF = the persistent CFW beacon byte. Neither appears in any
+    // stock 0x90/0x92 frame. Announce once per connection so it doesn't spam.
+    if (!cfwBeaconSeen && frame.payload) {
+      for (const b of frame.payload) {
+        if (b === CFW_BEACON_SENTINEL || b === CFW_BEACON_PERSIST) {
+          cfwBeaconSeen = true;
+          log("[+] ✓✓✓ CFW BEACON DETECTED — sentinel 0x" + b.toString(16).padStart(2,"0") +
+              " present in telemetry. The running firmware IS our patched image, not stock.");
+          break;
+        }
+      }
+    }
     return;
   }
   notifyQueue.push(value);
@@ -749,6 +768,7 @@ async function connect() {
   log("[*] selected device: " + device.name);
   device.addEventListener("gattserverdisconnected", () => log("[-] disconnected"));
   server = await device.gatt.connect();
+  cfwBeaconSeen = false;   // re-arm CFW beacon detection for this connection
   log("[+] GATT connected");
   const service = await server.getPrimaryService(SERVICE_UUID);
   const chars = await service.getCharacteristics();
@@ -996,16 +1016,17 @@ async function doDfuFlashInner(targetMcu, fwBytes, keyIndex) {
     log("[-] DFU: EOT was NOT ACK'd after 5 tries — the receiver did not accept the end-of-transfer. Do NOT power-cycle; re-flash.");
     return false;
   }
-  log("[+] EOT ACK'd (0x06) — receiver accepted the complete image.");
-  // On this BLDC/version, EOT-ACK is the real completion signal: there is no
-  // post-image checksum, and the controller reboots straight into the new
-  // image instead of printing the "rsq dfu_ok" string the app's DFUProcessor
-  // expects. We still wait a short window for an EXPLICIT result in case a
-  // given target (e.g. the dashboard) does send one, then treat EOT-ACK as
-  // success. (Telemetry 0x90/0x92 is filtered out of notifyQueue.)
+  log("[+] EOT ACK'd (0x06). Waiting for the bootloader's verify result…");
+  // EOT-ACK only means the transfer was received. The bootloader then verifies
+  // the image (it recomputes crc16_xmodem over the body and compares it to the
+  // CRC in the OTA header @0xB0) and ONLY THEN sends "rsq dfu_ok\r" (success)
+  // or "rsq dfu_error\r" (fail). If neither arrives, the image was rejected and
+  // the controller ROLLED BACK to the previous firmware — the patch is NOT
+  // running. (This is exactly what a stale header CRC causes; the patcher must
+  // recompute it.) Telemetry 0x90/0x92 is filtered out of notifyQueue.
   const okBytes = strToBytes("rsq dfu_ok");
   const errBytes = strToBytes("rsq dfu_error");
-  const deadline = Date.now() + 10000;
+  const deadline = Date.now() + 20000;
   let final = null;
   while (Date.now() < deadline) {
     const n = await waitForNotify(Math.max(500, deadline - Date.now()));
@@ -1013,20 +1034,19 @@ async function doDfuFlashInner(targetMcu, fwBytes, keyIndex) {
     if (bytesStartWith(n, okBytes) || bytesStartWith(n, errBytes)) { final = n; break; }
     log("[.] post-EOT notify: " + bytesToHex(n));
   }
-  if (final && bytesStartWith(final, errBytes)) {
-    log("[<] final: " + bytesToHex(final));
-    log("[-] DFU ERROR — scooter reports dfu_error; re-flash before power-cycling.");
-    return false;
-  }
+  log("[<] final: " + (final ? bytesToHex(final) : "null (no rsq dfu_ok / dfu_error in 20s)"));
   if (final && bytesStartWith(final, okBytes)) {
-    log("[<] final: " + bytesToHex(final));
-    log("[+] DFU COMPLETE — scooter reports dfu_ok.");
+    log("[+] ✓ DFU COMPLETE — scooter reports dfu_ok. Image verified and committed.");
     return true;
   }
-  // No explicit string — expected on the BLDC. EOT-ACK stands as success.
-  log("[+] DFU COMPLETE — EOT accepted; controller committed and rebooted. " +
-      "(This BLDC does not emit 'rsq dfu_ok'; the reboot to normal telemetry is the confirmation.)");
-  log("[.] Verify: let it finish rebooting, then reconnect and check firmware/behavior before riding.");
+  if (final && bytesStartWith(final, errBytes)) {
+    log("[-] DFU ERROR — scooter reports dfu_error (image rejected). Re-flash; check the header CRC.");
+    return false;
+  }
+  log("[-] DFU REJECTED — no dfu_ok arrived, so the bootloader verify FAILED and rolled back to the " +
+      "previous firmware. The image did NOT take. Most likely the OTA header body-CRC (@0xB0) does not " +
+      "match the patched body — rebuild the image with a corrected crc16_xmodem and re-flash.");
+  return false;
   return true;
 }
 
