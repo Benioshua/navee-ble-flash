@@ -968,8 +968,12 @@ async function doDfuFlashInner(targetMcu, fwBytes, keyIndex) {
       notifyQueue.length = 0;
       await send(block, false);
       const ackB = await waitForNotify(3000);
-      if (ackB && ackB.length === 1 && ackB[0] === 0x06) { ok = true; break; }
-      log("[-] block " + seq + " attempt " + (attempt + 1) + ": ack=" + (ackB ? bytesToHex(ackB) : null) + ", retrying");
+      // UT5 Max sends a 2-byte XMODEM ack: [0x06][seq] = ACK of that block,
+      // [0x15][seq] = NAK. (Standard XMODEM is a bare 0x06/0x15; this variant
+      // appends the block number.) Accept any response whose first byte is ACK.
+      if (ackB && ackB[0] === 0x06) { ok = true; break; }
+      const isNak = ackB && ackB[0] === 0x15;
+      log("[-] block " + seq + " attempt " + (attempt + 1) + ": ack=" + (ackB ? bytesToHex(ackB) : null) + (isNak ? " (NAK)" : "") + ", retrying");
     }
     if (!ok) { log("[-] block " + seq + " failed after retries, aborting"); return false; }
     if (seq % 20 === 0 || i === totalBlocks - 1) log("[.] sent block " + seq + "/" + totalBlocks);
