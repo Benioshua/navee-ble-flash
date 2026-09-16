@@ -989,10 +989,25 @@ async function doDfuFlashInner(targetMcu, fwBytes, keyIndex) {
     const ackB = await waitForNotify(3000);
     if (ackB && ackB[0] === 0x06) break;
   }
-  const final = await waitForNotify(5000);
-  log("[<] final: " + (final ? bytesToHex(final) : null));
-  if (final && bytesStartWith(final, strToBytes("rsq dfu_ok"))) { log("[+] DFU COMPLETE — scooter reports dfu_ok"); return true; }
-  log("[-] DFU did not confirm success — do NOT power-cycle the scooter until you're sure of its state.");
+  // After EOT is ACK'd the BLDC commits+verifies the whole image before it
+  // replies "rsq dfu_ok" — that can take well over 5 s for a 63 KB image, so
+  // wait up to 30 s and skip any stray/telemetry notify until we see the
+  // dfu_ok / dfu_error result. (Telemetry 0x90/0x92 is already filtered out
+  // of notifyQueue, so this loop is normally idle until the result lands.)
+  const okBytes = strToBytes("rsq dfu_ok");
+  const errBytes = strToBytes("rsq dfu_error");
+  const deadline = Date.now() + 30000;
+  let final = null;
+  while (Date.now() < deadline) {
+    const n = await waitForNotify(Math.max(500, deadline - Date.now()));
+    if (!n) continue;
+    if (bytesStartWith(n, okBytes) || bytesStartWith(n, errBytes)) { final = n; break; }
+    log("[.] post-EOT notify (waiting for dfu_ok): " + bytesToHex(n));
+  }
+  log("[<] final: " + (final ? bytesToHex(final) : "null (timed out waiting for rsq dfu_ok)"));
+  if (final && bytesStartWith(final, okBytes)) { log("[+] DFU COMPLETE — scooter reports dfu_ok"); return true; }
+  if (final && bytesStartWith(final, errBytes)) { log("[-] DFU ERROR — scooter reports dfu_error; re-flash before power-cycling."); return false; }
+  log("[-] DFU: all blocks + EOT were ACK'd but no dfu_ok/dfu_error arrived in 30s. The scooter likely committed (it's back on normal telemetry); re-flash to get an explicit confirmation before relying on it.");
   return false;
 }
 
