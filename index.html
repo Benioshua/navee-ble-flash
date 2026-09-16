@@ -279,6 +279,10 @@
         <span class="field-label">License key</span>
         <input type="text" id="relayLicense" value="GUB3N-NFABK-C9M2E-WC4BH-BBEDX">
       </label>
+      <label class="field">
+        <span class="field-label">License serial (spoof) — leave blank to send the scooter's real serial</span>
+        <input type="text" id="relayLicenseSerial" value="" placeholder="e.g. T25385CWUS4J01234 — the serial your license is bound to">
+      </label>
       <div class="field-grid">
         <label class="field">
           <span class="field-label">PID</span>
@@ -1107,6 +1111,13 @@ let relayWs = null;
 async function doCloudRelayFlash(pid, variant, license) {
   if (!charWrite || !charNotify) { log("[-] connect to the scooter first (step 1)"); return false; }
 
+  // Optional: the 1dragon license is bound to a specific scooter serial. If a
+  // license-serial is provided, rewrite the CMD_SERIAL (0x74) reply on its way
+  // to the server so the license validates against THAT serial instead of this
+  // scooter's real one. Only the relay stream is affected — direct reads
+  // (Serial button / recon) still report the true serial.
+  const licenseSerial = (document.getElementById("relayLicenseSerial").value || "").trim();
+
   let dfuStarted = false;
   try {
     log("[*] connecting to cloud relay " + RELAY_WS_URI);
@@ -1124,8 +1135,26 @@ async function doCloudRelayFlash(pid, variant, license) {
     // see it the same way a real phone would, unlike our own direct-BLE
     // functions above which filter telemetry out for their own convenience.
     relayNotifyHandler = (value) => {
-      log("[ble>ws] " + bytesToHex(value));
-      relayWs.send(relayEncrypt({ type: "ble_notify", data: bytesToHex(value) }));
+      let out = value;
+      if (licenseSerial) {
+        const f = parseFrame(value);
+        // CMD_SERIAL (0x74) reply = [0x00] + N-byte ASCII serial (N usually 20,
+        // null-padded). Overwrite the serial field with the license serial and
+        // rebuild the frame so its checksum is valid.
+        if (f.type === "navee" && f.cmd === 0x74 && f.payload.length >= 2) {
+          const pay = new Uint8Array(f.payload);
+          const fieldLen = pay.length - 1;                 // serial bytes after the leading 0x00
+          for (let i = 0; i < fieldLen; i++) {
+            pay[1 + i] = i < licenseSerial.length ? (licenseSerial.charCodeAt(i) & 0xFF) : 0x00;
+          }
+          out = buildBlePacket(0x74, pay);
+          log("[ble>ws] CMD_SERIAL spoofed: real=" +
+              String.fromCharCode(...f.payload.slice(1)).replace(/\0+$/, "") +
+              " -> sent=" + licenseSerial);
+        }
+      }
+      log("[ble>ws] " + bytesToHex(out));
+      relayWs.send(relayEncrypt({ type: "ble_notify", data: bytesToHex(out) }));
     };
 
     const msgQueue = [];
