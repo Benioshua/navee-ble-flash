@@ -223,12 +223,20 @@
 <section class="card">
   <div class="card-head"><span class="step">2</span><h2>Test &amp; Flash</h2></div>
   <p class="hint">Our own reverse-engineered protocol, direct over BLE — no cloud involved.</p>
+  <label class="field">
+    <span class="field-label">Device / preset</span>
+    <select id="devicePreset">
+      <option value="">— Generic (manual) —</option>
+      <option value="ut5max">Navee UT5 Max — CFW (BLDC, pid 25382)</option>
+    </select>
+  </label>
+  <p class="hint preset-hint" id="presetHint" hidden></p>
   <div class="action-grid">
     <button id="testBtn" class="btn btn-secondary" type="button" disabled>Test Connection</button>
     <button id="dryRunBtn" class="btn btn-secondary" type="button" disabled>Dry Run (safe)</button>
   </div>
   <label class="field">
-    <span class="field-label">Firmware .bin</span>
+    <span class="field-label" id="fwFileLabel">Firmware .bin</span>
     <input type="file" id="fwFile">
   </label>
   <button id="flashBtn" class="btn btn-primary btn-block" type="button" disabled>Flash Firmware</button>
@@ -247,6 +255,10 @@
           <option value="3">3 = bms</option>
           <option value="4">4 = screen</option>
         </select>
+      </label>
+      <label class="field">
+        <span class="field-label">Custom ble_key candidate (32 hex chars, optional)</span>
+        <input type="text" id="customKey" placeholder="e.g. a0a1a2a3a4a5a6a7a8a9aaabacadaeaf" maxlength="32" spellcheck="false">
       </label>
     </div>
   </details>
@@ -458,6 +470,9 @@
 // ─────────────────────────── Protocol constants ───────────────────────────
 const SERVICE_UUID = "0000d0ff-3c17-d293-8e48-14fe2e4da212";
 
+// BleHandler.keyBytes from the real Navee Android app (decompiled via jadx,
+// 2026-09-15) -- ONE shared 5-entry key table used for every Navee model,
+// confirmed byte-for-byte identical to what was already here.
 const AES_KEYS = [
   "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
   "446d10726dbe05f662dfaaf01327303f",
@@ -846,42 +861,65 @@ async function doDfuHandshake(targetMcu, keyIndex) {
   if (!ack) { log("[-] dfu_start failed"); return false; }
   log("[<] " + bytesToHex(ack));
 
-  // [CORRECTED] Disassembly of UT5 Max's actual ble_rand handler
-  // (0x81D904 -> 0x81D888 -> 0x800eb8) shows it fills the reply buffer
-  // directly from a hardware RNG call, with NO AES or any other transform
-  // applied — the "cipher" in the ble_rand reply IS the raw random value,
-  // sent as-is. The old "AES_DECRYPT(random,key)" claim was wrong; there
-  // is no AES anywhere in this handshake (matches the 0x30/0x31 auth path,
-  // which is pure XOR too). ble_key's check XORs our sent bytes with
-  // key[profile] and compares to this raw random, so the payload to send
-  // is simply cipher XOR key.
+  // [CORRECTED 2026-09-15] Decompiled the real Navee Android app
+  // (DFUProcessor.java / ByteUtil.java / BleHandler.java, via jadx) --
+  // ground truth beats our own disassembly guesses. The app's own logic:
+  //   - ble_rand reply <= 20 bytes total ("ok " + 16 raw bytes + "\r", no
+  //     extra flag byte -- this is UT5 Max's exact shape, confirmed live)
+  //     -> response = AES/ECB/NoPadding ENCRYPT(challenge, key[index])
+  //   - ble_rand reply > 20 bytes (newer models send an extra type byte
+  //     right after "ok ") -> if that byte is 0, response = challenge XOR
+  //     key[index]; otherwise same AES-encrypt as above.
+  // Disassembly had correctly shown ble_rand itself applies no transform
+  // (challenge is sent raw) but wrongly concluded ble_key must therefore
+  // be XOR too -- the real app still AES-encrypts that raw challenge for
+  // devices like ours. AES_KEYS below is BleHandler.keyBytes verbatim from
+  // the app -- confirmed identical to what was already here from the
+  // ST3-specific disassembly, i.e. this is ONE shared table for every
+  // Navee model, not a per-model secret. The "0x848C4A lives outside the
+  // dump" finding is superseded: that address was never the real key
+  // table for the model this app targets, since no per-model table exists.
   //
   // The "already authenticated" short-ack path in doAuth() never actually
   // runs a real challenge-response round, so it never confirms which key
   // index (profile) the scooter is really keyed to right now — sweep all
-  // 5 key indices rather than assume the UI-selected one is correct.
-  const order = [keyIndex, ...AES_KEYS.map((_, i) => i).filter(i => i !== keyIndex)];
+  // 5 indices rather than assume the UI-selected one is correct.
+  const order = [keyIndex, ...AES_KEYS.map((_, i) => i).filter(i => i !== keyIndex)]
+    .map(idx => ({ label: "key_index=" + idx, key: AES_KEYS[idx] }));
+  const customKeyHex = (document.getElementById("customKey").value || "").trim().replace(/^0x/i, "");
+  if (customKeyHex.length === 32 && /^[0-9a-f]{32}$/i.test(customKeyHex)) {
+    order.unshift({ label: "custom=" + customKeyHex, key: hexToBytes(customKeyHex) });
+  } else if (customKeyHex.length > 0) {
+    log("[-] custom key ignored — expected exactly 32 hex chars, got " + customKeyHex.length);
+  }
   let resp2 = null;
-  for (const idx of order) {
-    const key = AES_KEYS[idx];
+  for (const cand of order) {
+    const key = cand.key;
     const resp = await dfuSendText("down ble_rand\r", "ok ");
-    if (!resp) { log("[-] ble_rand failed while testing key index " + idx); continue; }
-    const cipher = resp.slice(3, 19);
-    if (cipher.length !== 16) { log("[-] unexpected ble_rand cipher length while testing key index " + idx); continue; }
-    const payload = cipher.map((b, i) => b ^ key[i]);
-    log("[*] key_index=" + idx + ": cipher=" + bytesToHex(cipher) + " payload=" + bytesToHex(payload));
+    if (!resp) { log("[-] ble_rand failed while testing " + cand.label); continue; }
+    let cipher, useXor;
+    if (resp.length <= 20) {
+      cipher = resp.slice(3, resp.length - 1);
+      useXor = false;
+    } else {
+      cipher = resp.slice(4, resp.length - 1);
+      useXor = resp[3] === 0;
+    }
+    if (cipher.length !== 16) { log("[-] unexpected ble_rand cipher length (" + cipher.length + ") while testing " + cand.label); continue; }
+    const payload = useXor ? cipher.map((b, i) => b ^ key[i]) : aesEncryptBlock(cipher, key);
+    log("[*] " + cand.label + " (" + (useXor ? "XOR" : "AES") + "): cipher=" + bytesToHex(cipher) + " payload=" + bytesToHex(payload));
     notifyQueue.length = 0;
     const keyMsg = concatBytes(strToBytes("down ble_key "), payload, new Uint8Array([0x0d]));
     await send(keyMsg, true);
     resp2 = await waitForNotify(5000);
     if (resp2 && bytesStartWith(resp2, strToBytes("ok"))) {
-      log("[+] SUCCESS with key_index=" + idx + " — remember this for future runs.");
+      log("[+] SUCCESS with " + cand.label + " — remember this for future runs.");
       break;
     }
-    log("[-] key_index=" + idx + ": " + (resp2 ? bytesToHex(resp2) : null));
+    log("[-] " + cand.label + ": " + (resp2 ? bytesToHex(resp2) : null));
   }
   if (!resp2 || !bytesStartWith(resp2, strToBytes("ok"))) {
-    log("[-] ble_key rejected across all 5 key indices.");
+    log("[-] ble_key rejected across all " + order.length + " candidate key(s).");
     return false;
   }
   log("[<] " + bytesToHex(resp2));
@@ -1343,6 +1381,32 @@ async function runFlow(mode) {
 document.getElementById("testBtn").addEventListener("click", () => runFlow("auth"));
 document.getElementById("dryRunBtn").addEventListener("click", () => runFlow("dfu-dryrun"));
 document.getElementById("flashBtn").addEventListener("click", () => runFlow("flash"));
+
+// Device presets: set the right DFU target + guidance for a known model.
+// No firmware is bundled -- you still load your own .bin (e.g. a CFW build).
+const DEVICE_PRESETS = {
+  ut5max: {
+    dfuTarget: "2",              // bldc
+    fwLabel: "CFW / firmware .bin (BLDC)",
+    hint: "UT5 Max CFW → flashes the BLDC (pid 25382). Load your patched .bin below " +
+          "(e.g. navee_bldc_25382_TUNED.bin). EXPERIMENTAL / UNTESTED — always Dry Run first, " +
+          "and bench-test with the wheel off the ground before riding.",
+  },
+};
+document.getElementById("devicePreset").addEventListener("change", (e) => {
+  const p = DEVICE_PRESETS[e.target.value];
+  const hintEl = document.getElementById("presetHint");
+  const fwLabel = document.getElementById("fwFileLabel");
+  if (p) {
+    document.getElementById("dfuTarget").value = p.dfuTarget;
+    fwLabel.textContent = p.fwLabel;
+    hintEl.textContent = p.hint;
+    hintEl.hidden = false;
+  } else {
+    fwLabel.textContent = "Firmware .bin";
+    hintEl.hidden = true;
+  }
+});
 
 document.getElementById("relayBtn").addEventListener("click", async () => {
   actionButtons.forEach(b => b.disabled = true);
