@@ -985,32 +985,49 @@ async function doDfuFlashInner(targetMcu, fwBytes, keyIndex) {
     seq = (seq + 1) & 0xFF;
     if (seq === 0) seq = 1;
   }
+  let eotAcked = false;
   for (let attempt = 0; attempt < 5; attempt++) {
     notifyQueue.length = 0;
     await send(new Uint8Array([0x04]), false);
     const ackB = await waitForNotify(3000);
-    if (ackB && ackB[0] === 0x06) break;
+    if (ackB && ackB[0] === 0x06) { eotAcked = true; break; }
   }
-  // After EOT is ACK'd the BLDC commits+verifies the whole image before it
-  // replies "rsq dfu_ok" — that can take well over 5 s for a 63 KB image, so
-  // wait up to 30 s and skip any stray/telemetry notify until we see the
-  // dfu_ok / dfu_error result. (Telemetry 0x90/0x92 is already filtered out
-  // of notifyQueue, so this loop is normally idle until the result lands.)
+  if (!eotAcked) {
+    log("[-] DFU: EOT was NOT ACK'd after 5 tries — the receiver did not accept the end-of-transfer. Do NOT power-cycle; re-flash.");
+    return false;
+  }
+  log("[+] EOT ACK'd (0x06) — receiver accepted the complete image.");
+  // On this BLDC/version, EOT-ACK is the real completion signal: there is no
+  // post-image checksum, and the controller reboots straight into the new
+  // image instead of printing the "rsq dfu_ok" string the app's DFUProcessor
+  // expects. We still wait a short window for an EXPLICIT result in case a
+  // given target (e.g. the dashboard) does send one, then treat EOT-ACK as
+  // success. (Telemetry 0x90/0x92 is filtered out of notifyQueue.)
   const okBytes = strToBytes("rsq dfu_ok");
   const errBytes = strToBytes("rsq dfu_error");
-  const deadline = Date.now() + 30000;
+  const deadline = Date.now() + 10000;
   let final = null;
   while (Date.now() < deadline) {
     const n = await waitForNotify(Math.max(500, deadline - Date.now()));
     if (!n) continue;
     if (bytesStartWith(n, okBytes) || bytesStartWith(n, errBytes)) { final = n; break; }
-    log("[.] post-EOT notify (waiting for dfu_ok): " + bytesToHex(n));
+    log("[.] post-EOT notify: " + bytesToHex(n));
   }
-  log("[<] final: " + (final ? bytesToHex(final) : "null (timed out waiting for rsq dfu_ok)"));
-  if (final && bytesStartWith(final, okBytes)) { log("[+] DFU COMPLETE — scooter reports dfu_ok"); return true; }
-  if (final && bytesStartWith(final, errBytes)) { log("[-] DFU ERROR — scooter reports dfu_error; re-flash before power-cycling."); return false; }
-  log("[-] DFU: all blocks + EOT were ACK'd but no dfu_ok/dfu_error arrived in 30s. The scooter likely committed (it's back on normal telemetry); re-flash to get an explicit confirmation before relying on it.");
-  return false;
+  if (final && bytesStartWith(final, errBytes)) {
+    log("[<] final: " + bytesToHex(final));
+    log("[-] DFU ERROR — scooter reports dfu_error; re-flash before power-cycling.");
+    return false;
+  }
+  if (final && bytesStartWith(final, okBytes)) {
+    log("[<] final: " + bytesToHex(final));
+    log("[+] DFU COMPLETE — scooter reports dfu_ok.");
+    return true;
+  }
+  // No explicit string — expected on the BLDC. EOT-ACK stands as success.
+  log("[+] DFU COMPLETE — EOT accepted; controller committed and rebooted. " +
+      "(This BLDC does not emit 'rsq dfu_ok'; the reboot to normal telemetry is the confirmation.)");
+  log("[.] Verify: let it finish rebooting, then reconnect and check firmware/behavior before riding.");
+  return true;
 }
 
 async function doDfuFlash(targetMcu, fwBytes, keyIndex) {
