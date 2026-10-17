@@ -701,6 +701,10 @@ function log(msg) {
   line.className = "logline " + classifyLog(msg);
   line.textContent = msg;
   logEl.appendChild(line);
+  // Cap the on-screen log. The scooter floods telemetry continuously, and during
+  // a 498-block flash an uncapped log grows the DOM until the browser freezes.
+  // Keep only the most recent lines.
+  while (logEl.childElementCount > 600) logEl.removeChild(logEl.firstChild);
   if (atBottom) logEl.scrollTop = logEl.scrollHeight;
   console.log(msg);
 }
@@ -718,6 +722,9 @@ let notifyResolve = null;
 // While a cloud-relay session is active, every notification is forwarded
 // here instead of the normal queue/log path — see the Cloud Relay section.
 let relayNotifyHandler = null;
+// True while a DFU flash is running — telemetry logging is muted so the flood
+// can't bloat the DOM and freeze the page mid-transfer.
+let dfuActive = false;
 
 // CFW telemetry-beacon detection. Stock 0x90/0x92 frames never contain these.
 const CFW_BEACON_SENTINEL = 0x4D;   // 77 = forced-speed value in the diagnostic build
@@ -733,7 +740,7 @@ function onNotify(event) {
   // let it enter the reply-matching queue.
   const frame = parseFrame(value);
   if (frame.type === "navee" && (frame.cmd === 0x90 || frame.cmd === 0x92)) {
-    log("[.] telemetry (unsolicited) " + bytesToHex(value));
+    if (!dfuActive) log("[.] telemetry (unsolicited) " + bytesToHex(value));
     // CFW beacon: our diagnostic/CFW forces a sentinel value into a telemetry
     // field that stock firmware never emits. If it shows up here, the running
     // image is definitely ours. 0x4D (77) = the forced-speed diagnostic
@@ -1055,6 +1062,7 @@ async function doDfuFlashInner(targetMcu, fwBytes, keyIndex) {
 }
 
 async function doDfuFlash(targetMcu, fwBytes, keyIndex) {
+  dfuActive = true;  // mute telemetry logging so the flood can't freeze the page
   try {
     return await doDfuFlashInner(targetMcu, fwBytes, keyIndex);
   } catch (e) {
@@ -1063,6 +1071,8 @@ async function doDfuFlash(targetMcu, fwBytes, keyIndex) {
         "the target MCU may be left in a PARTIALLY-WRITTEN state. Do NOT power-cycle the scooter. " +
         "Try reconnecting and re-running 'auth' stage to check whether it still responds before deciding anything else.");
     return false;
+  } finally {
+    dfuActive = false;  // resume telemetry logging
   }
 }
 
