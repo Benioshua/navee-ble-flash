@@ -759,7 +759,12 @@ function onNotify(event) {
     return;
   }
   notifyQueue.push(value);
-  log("[<] notify " + bytesToHex(value));
+  // During a flash, the 498 per-block ACKs ([06][seq]/[15][seq]) would also
+  // flood the log. Suppress those while dfuActive; still log everything else
+  // (handshake replies, the final rsq dfu_ok/error).
+  if (!(dfuActive && value.length <= 2 && (value[0] === 0x06 || value[0] === 0x15))) {
+    log("[<] notify " + bytesToHex(value));
+  }
   if (notifyResolve) { const r = notifyResolve; notifyResolve = null; r(); }
 }
 function waitForNotify(timeoutMs = 5000) {
@@ -805,7 +810,10 @@ async function connect() {
   if (!charWrite || !charNotify) throw new Error("Missing write/notify characteristic on this service.");
 }
 async function send(data, withResponse = true) {
-  log("[>] " + bytesToHex(data));
+  // During a flash the 498 block writes (one big hex line each) flood the log
+  // and freeze the page. Suppress large (block) writes while dfuActive; small
+  // handshake writes (dfu_start/ble_rand/ble_key, EOT) still log.
+  if (!(dfuActive && data.length > 32)) log("[>] " + bytesToHex(data));
   if (!withResponse && charWrite.properties.writeWithoutResponse) {
     await charWrite.writeValueWithoutResponse(data);
   } else if (charWrite.properties.write && charWrite.writeValueWithResponse) {
